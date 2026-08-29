@@ -1,0 +1,374 @@
+  :root{
+    --red:#D72F2F;
+    --red-dark:#AD2323;
+    --red-deep:#7A1616;
+    --ink:#201B1A;
+    --ink-soft:#5B5352;
+    --paper:#FFFFFF;
+    --cream:#FAF7F4;
+    --line:#E9E1DD;
+    --ok:#2E7D4F;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Inter',sans-serif;
+    color:var(--ink);
+    background:var(--cream);
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.display{
+    font-family:'Inter',sans-serif;
+    font-weight:800;
+    letter-spacing:-.01em;
+  }
+  .topbar{
+    background:var(--red);
+    padding:14px 24px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .logo-img{
+    height:38px;
+    width:auto;
+    display:block;
+    filter:brightness(0) invert(1);
+  }
+  .topbar-right{
+    color:#fff;
+    font-size:13.5px;
+    font-weight:600;
+    letter-spacing:.02em;
+    white-space:nowrap;
+  }
+  .hero{
+    background:var(--paper);
+    color:var(--ink);
+    padding:40px 24px 44px;
+    text-align:center;
+    border-bottom:1px solid var(--line);
+  }
+  .eyebrow{
+    display:inline-block;
+    color:var(--red);
+    font-size:12.5px;
+    font-weight:700;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    margin-bottom:12px;
+  }
+  .hero h1{
+    font-size:clamp(26px,4.6vw,38px);
+    margin:0 0 12px;
+    line-height:1.08;
+    color:var(--ink);
+  }
+  .hero p{
+    max-width:560px;
+    margin:0 auto;
+    font-size:15px;
+    line-height:1.55;
+    color:var(--ink-soft);
+  }
+  .wrap{
+    max-width:640px;
+    margin:-32px auto 60px;
+    padding:0 16px;
+  }
+  .card{
+    background:var(--paper);
+    border-radius:16px;
+    box-shadow:0 20px 40px -20px rgba(124,33,26,.25), 0 1px 0 var(--line);
+    padding:32px 28px 28px;
+  }
+  /* stepper styled as asset tags */
+  .stepper{
+    display:flex;
+    gap:6px;
+    margin-bottom:28px;
+  }
+  .tag{
+    flex:1;
+    height:8px;
+    border-radius:4px;
+    background:var(--line);
+    position:relative;
+    transition:background .3s ease;
+  }
+  .tag.done{background:var(--red);}
+  .tag.active{background:var(--red);}
+  .step-label{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--ink-soft);
+    font-weight:600;
+    margin-bottom:4px;
+  }
+  .step-title{
+    font-size:24px;
+    margin:0 0 18px;
+  }
+  .field{margin-bottom:16px;}
+  .field label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin-bottom:6px;
+    color:var(--ink);
+  }
+  .field .hint{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:5px;
+    line-height:1.4;
+  }
+  .field input[type=text],
+  .field input[type=email],
+  .field input[type=number],
+  .field input[type=date],
+  .field textarea,
+  .field select{
+    width:100%;
+    padding:11px 12px;
+    border:1.5px solid var(--line);
+    border-radius:9px;
+    font-family:'Inter',sans-serif;
+    font-size:14.5px;
+    color:var(--ink);
+    background:#fff;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .field input:focus,
+  .field textarea:focus,
+  .field select:focus{
+    outline:none;
+    border-color:var(--red);
+    box-shadow:0 0 0 3px rgba(207,56,44,.15);
+  }
+  .field input.err, .field textarea.err, .field select.err{
+    border-color:#C0392B;
+  }
+  .err-msg{
+    font-size:12px;
+    color:#C0392B;
+    margin-top:5px;
+    display:none;
+  }
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:480px){.row2{grid-template-columns:1fr;}}
+
+  .choice-group{display:flex;flex-direction:column;gap:8px;}
+  .choice{
+    border:1.5px solid var(--line);
+    border-radius:10px;
+    padding:12px 14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .choice:hover{border-color:#e5b7b1;}
+  .choice.selected{
+    border-color:var(--red);
+    background:rgba(207,56,44,.06);
+  }
+  .choice input{margin:0;accent-color:var(--red);}
+  .choice .clabel{font-size:14.5px;font-weight:500;}
+
+  .yn{display:flex;gap:10px;}
+  .yn .choice{flex:1;justify-content:center;}
+
+  .fileinput{
+    border:1.5px dashed var(--line);
+    border-radius:10px;
+    padding:20px;
+    text-align:center;
+    cursor:pointer;
+    color:var(--ink-soft);
+    font-size:13.5px;
+  }
+  .fileinput.has-file{border-color:var(--ok);color:var(--ok);border-style:solid;}
+  .fileinput input{display:none;}
+
+  .textlines{display:flex;flex-direction:column;gap:8px;}
+
+  .actions{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:24px;
+    gap:10px;
+  }
+  button{
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:14.5px;
+    border:none;
+    border-radius:9px;
+    padding:12px 22px;
+    cursor:pointer;
+    transition:background .15s ease, opacity .15s ease, transform .1s ease;
+  }
+  button.primary{background:var(--red);color:#fff;}
+  button.primary:hover{background:var(--red-dark);}
+  button.primary:active{transform:scale(.98);}
+  button.ghost{background:transparent;color:var(--ink-soft);}
+  button.ghost:hover{color:var(--ink);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+
+  .review-block{margin-bottom:18px;}
+  .review-block h3{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--red-deep);
+    margin:0 0 10px;
+    font-family:'Inter',sans-serif;
+    font-weight:700;
+  }
+  .review-row{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:8px 0;
+    border-bottom:1px solid var(--line);
+    font-size:14px;
+  }
+  .review-row:last-child{border-bottom:none;}
+  .review-row .k{color:var(--ink-soft);}
+  .review-row .v{font-weight:600;text-align:right;max-width:60%;word-break:break-word;}
+
+  .authtext{
+    background:var(--cream);
+    border-radius:10px;
+    padding:16px;
+    font-size:13.5px;
+    line-height:1.6;
+    color:var(--ink-soft);
+    margin-bottom:18px;
+  }
+  .agree{
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    margin-bottom:18px;
+    font-size:13.5px;
+  }
+  .agree input{margin-top:3px;accent-color:var(--red);}
+
+  .success{
+    text-align:center;
+    padding:20px 4px 4px;
+  }
+  .success .check{
+    width:56px;height:56px;
+    border-radius:50%;
+    background:rgba(46,125,79,.12);
+    color:var(--ok);
+    display:flex;align-items:center;justify-content:center;
+    margin:0 auto 16px;
+  }
+  .success .ref{
+    font-family:'Inter',sans-serif;
+    font-weight:800;
+    font-size:19px;
+    letter-spacing:.03em;
+    color:var(--red-deep);
+    margin:12px 0 4px;
+  }
+
+  .foot{
+    text-align:center;
+    margin-top:22px;
+  }
+  .foot a{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    text-decoration:underline;
+    cursor:pointer;
+  }
+  .foot a:hover{color:var(--red);}
+
+/* ---------------------------------------------------------------------------
+   Accessibility
+   The label choices are keyboard-operable, so they need a visible focus ring.
+   --------------------------------------------------------------------------- */
+.choice:focus-visible{
+  outline:none;
+  border-color:var(--red);
+  box-shadow:0 0 0 3px rgba(207,56,44,.25);
+}
+button:focus-visible{
+  outline:2px solid var(--red);
+  outline-offset:2px;
+}
+.sr-only{
+  position:absolute;
+  width:1px;height:1px;
+  padding:0;margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;border:0;
+}
+
+/* Submission failures are announced inline rather than through alert(). */
+.form-error{
+  background:#FCEDEC;
+  border:1.5px solid #E4B4AF;
+  color:#8C2A22;
+  border-radius:10px;
+  padding:12px 14px;
+  font-size:13.5px;
+  line-height:1.5;
+  margin-bottom:16px;
+}
+
+.seq-preview{
+  font-size:12px;
+  color:var(--ink-soft);
+  margin-top:5px;
+  line-height:1.4;
+}
+.seq-preview strong{color:var(--ink);font-weight:600;}
+
+/* ---------------------------------------------------------------------------
+   Printed authorization record
+   A custom label order is nonreturnable once approved, so the customer needs a
+   durable copy of exactly what they authorized. Printing the confirmation
+   screen produces that record.
+   --------------------------------------------------------------------------- */
+.print-only{display:none;}
+
+@media print{
+  @page{margin:16mm;}
+  body{background:#fff;}
+  .topbar,.hero,.stepper,.actions,.foot,.no-print{display:none !important;}
+  .print-only{display:block;}
+  .wrap{margin:0;padding:0;max-width:none;}
+  .card{
+    box-shadow:none;
+    border-radius:0;
+    padding:0;
+  }
+  .success .check{display:none;}
+  .review-row{break-inside:avoid;}
+  .print-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border-bottom:2px solid var(--red);
+    padding-bottom:10px;
+    margin-bottom:18px;
+  }
+  .print-header img{height:34px;width:auto;}
+  .print-header .meta{font-size:12px;text-align:right;color:var(--ink-soft);}
+  .authtext{
+    background:none;
+    border:1px solid var(--line);
+    padding:12px;
+  }
+}

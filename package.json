@@ -1,0 +1,14 @@
+{
+  "name": "toolhound-label-order-form",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public form for authorizing custom ToolHound label orders.",
+  "scripts": {
+    "dev": "python3 -m http.server 4173 --directory public",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}
