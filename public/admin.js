@@ -20,7 +20,7 @@
 
   var CONFIG = window.TOOLHOUND_CONFIG || {};
   var ADMIN = window.TOOLHOUND_ADMIN_CONFIG || {};
-  var ALLOWED_DOMAINS = ADMIN.allowedDomains || ['beaconsoftware.com', 'toolhound.com'];
+  var ALLOWED_DOMAINS = ADMIN.allowedDomains || ['beaconsoftware.com'];
 
   var STATUSES = [
     { value: 'received', label: 'Received' },

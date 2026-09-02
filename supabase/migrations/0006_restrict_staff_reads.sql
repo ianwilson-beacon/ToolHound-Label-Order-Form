@@ -45,14 +45,20 @@ begin
     claims ->> 'primary_email_address'
   ));
 
-  -- Anchored on '@' and on end-of-string, so neither `nottoolhound.com` nor
-  -- `toolhound.com.attacker.example` matches, and neither does a subdomain.
-  return coalesce(email ~ '@(beaconsoftware\.com|toolhound\.com)$', false);
+  -- Anchored on '@' and on end-of-string, so neither `notbeaconsoftware.com`
+  -- nor `beaconsoftware.com.attacker.example` matches, and neither does a
+  -- subdomain.
+  --
+  -- Beacon addresses only. ToolHound addresses were in this list earlier and
+  -- were deliberately removed: note that the order notification still goes to
+  -- sales@toolhound.com, so whoever reads that inbox needs a Beacon account to
+  -- open the dashboard link it contains.
+  return coalesce(email ~ '@beaconsoftware\.com$', false);
 end;
 $$;
 
 comment on function public.is_label_order_staff() is
-  'True when the verified JWT carries a Beacon or ToolHound email address. The security boundary for the internal orders dashboard — any client-side domain check is user experience only. Reads the standard `email` claim, which both Supabase Auth and a Clerk session token (with email added to the session token) provide.';
+  'True when the verified JWT carries a Beacon email address. The security boundary for the internal orders dashboard — any client-side domain check is user experience only. Reads the standard `email` claim, which both Supabase Auth and a Clerk session token (with email added to the session token) provide.';
 
 grant execute on function public.is_label_order_staff() to authenticated;
 

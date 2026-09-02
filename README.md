@@ -30,19 +30,13 @@ authorization record.
 
 ## Internal orders view
 
-`admin.html` is a staff-only page for browsing submitted orders — no
-service-role key involved. It signs in with Supabase Auth, three ways:
+`admin.html` is a staff-only page for browsing and working submitted orders —
+no service-role key involved. Sign-in is Clerk; access is limited to Beacon
+addresses and enforced in the database. The page is `noindex` and unlinked from
+the public form, but it is still reachable by anyone who has the URL: the
+sign-in and the RLS policy behind it are what protect it, not obscurity.
 
-- **Google**, restricted to `@beaconsoftware.com`
-- **Microsoft**, restricted to `@toolhound.com`
-- **Email + password**, for an account created manually in the Supabase
-  dashboard (**Authentication → Users → Add user**) — no public sign-up
-
-Once signed in, the `authenticated` role's SELECT policy on `label_orders`
-(`supabase/migrations/0004_staff_read_access.sql`) is what actually allows
-reading orders. The page is `noindex` and unlinked from the public form, but
-it is still reachable by anyone who has the URL — the login screen is what
-protects it, not obscurity.
+See **The internal orders dashboard** and **Access** below for the detail.
 
 The domain restriction is enforced twice: `admin.js` hints each provider's
 account picker toward the right domain and re-checks the signed-in email
@@ -144,10 +138,12 @@ different things:
 fails silently in the browser as a blocked request — if sign-in appears to do
 nothing at all, check the CSP first.
 
-Required Vercel environment variable: `CLERK_PUBLISHABLE_KEY`. If it is
-missing, the build still succeeds and the order form deploys normally; only
-`/admin` degrades, to a "not configured" notice. An unconfigured dashboard must
-never be able to take the customer-facing form offline.
+No Vercel environment variable is required: the Clerk publishable key has a
+committed default. `CLERK_PUBLISHABLE_KEY` overrides it, which is how the
+`pk_live_` key gets in for production. Either way, if the key ends up empty the
+build still succeeds and the order form deploys normally; only `/admin`
+degrades, to a "not configured" notice. An unconfigured dashboard must never be
+able to take the customer-facing form offline.
 
 ## The internal orders dashboard
 
@@ -194,8 +190,18 @@ the list query, because it is up to ~6MB of base64 per row.
 ## Access
 
 Authentication is **Clerk SSO** — the same Clerk instance as the ToolHound
-Command Center, so staff get one login across both tools — with access limited
-to `beaconsoftware.com` and `toolhound.com` addresses.
+Command Center (`perfect-lemming-55.clerk.accounts.dev`), so staff get one
+login across both tools — with access limited to **`beaconsoftware.com`**
+addresses.
+
+Beacon only, deliberately. `@toolhound.com` was in the allowlist earlier and
+was removed. Worth knowing: the new-order notification goes to
+`sales@toolhound.com`, so whoever reads that inbox needs a Beacon account to
+open the dashboard link in it. Widening the allowlist again means changing it
+in **two** places that must agree — `ALLOWED_DOMAINS` in
+`scripts/build-admin-config.js` and the regex in
+`public.is_label_order_staff()` (migration `0006`). The second is the one that
+actually grants access.
 
 The domain is checked in two places, and only one of them is the security
 boundary:
@@ -223,15 +229,20 @@ non-allowlisted address cannot get a session at all.
      returns false, and the dashboard shows an empty table with no error.
    - Social Connections → enable Google and Microsoft if you want those
      buttons. None of that is in this repo.
-   - Note the Clerk **Frontend API / issuer URL**.
+   - Restrictions → set sign-ups to **Restricted** and allowlist
+     `beaconsoftware.com`. Second layer; the database is the boundary.
 2. **Supabase dashboard** → Authentication → Sign In / Up → Third-Party Auth →
-   add **Clerk**, and paste that issuer URL.
-3. **Vercel** → set `CLERK_PUBLISHABLE_KEY` (`pk_live_...` for production) in
-   the project environment and redeploy.
-4. **Verify while signed in.** Load `/admin`, confirm orders appear, and change
+   add **Clerk**, issuer URL `https://perfect-lemming-55.clerk.accounts.dev`.
+3. **Verify while signed in.** Load `/admin`, confirm orders appear, and change
    one status. If the table is empty, decode
    `await window.Clerk.session.getToken()` at jwt.io and check for both `role`
    and `email`.
+
+The publishable key is committed (see `scripts/build-admin-config.js`), so
+there is nothing to set in Vercel for the development instance. For production,
+set `CLERK_PUBLISHABLE_KEY` to the `pk_live_` key — the environment overrides
+the committed default. The current key is a **development** instance, so the
+sign-in card shows Clerk's "Development mode" banner.
 
 Rollback is `SUPABASE_CLERK_AUTH=false` and a redeploy: the client falls back to
 the anon key, which holds no SELECT policy, so the dashboard goes blank rather
@@ -282,6 +293,13 @@ a customer their order.
 The email carries the order reference, customer, shipping address, label spec,
 quantity, sequence range, and authorization, plus a link to the dashboard. It
 never carries the uploaded artwork — same SVG reasoning as above.
+
+**The recipient and the dashboard allowlist do not match.** Notifications go to
+`sales@toolhound.com`; the dashboard admits `beaconsoftware.com` only. So the
+email lands with someone who cannot follow its link. Resolve it whichever way
+suits: point `NOTIFY_TO` at a Beacon address (or add one alongside — it takes a
+comma-separated list), or put `toolhound.com` back in the allowlist per
+**Access** above.
 
 ### Deploying it
 

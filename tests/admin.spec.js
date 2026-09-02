@@ -121,7 +121,7 @@ async function stubAdminConfig(page, { clerkKey = 'pk_test_fake' } = {}) {
       body: `window.TOOLHOUND_ADMIN_CONFIG = {
         clerkPublishableKey: ${clerkKey ? JSON.stringify(clerkKey) : 'null'},
         useClerkAuth: true,
-        allowedDomains: ['beaconsoftware.com', 'toolhound.com']
+        allowedDomains: ['beaconsoftware.com']
       };`
     })
   );
@@ -269,13 +269,25 @@ test('blocks a signed-in user from outside the allowed domains', async ({ page }
 });
 
 test('a lookalike domain is not allowed through', async ({ page }) => {
-  await openDashboard(page, { email: 'attacker@nottoolhound.com' });
+  await openDashboard(page, { email: 'attacker@notbeaconsoftware.com' });
   await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
 });
 
-test('admits a ToolHound address as well as a Beacon one', async ({ page }) => {
-  await openDashboard(page, { email: 'sales@toolhound.com' });
+test('a subdomain of the allowed domain is not allowed through', async ({ page }) => {
+  await openDashboard(page, { email: 'attacker@mail.beaconsoftware.com' });
+  await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
+});
+
+test('admits a Beacon address', async ({ page }) => {
+  await openDashboard(page, { email: 'sales@beaconsoftware.com' });
   await expect(page.getByRole('heading', { name: 'Label orders' })).toBeVisible();
+});
+
+test('a ToolHound address is no longer admitted', async ({ page }) => {
+  // Beacon-only by request. sales@toolhound.com receives the new-order
+  // notification but cannot open the dashboard it links to.
+  await openDashboard(page, { email: 'sales@toolhound.com' });
+  await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
