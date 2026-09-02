@@ -157,7 +157,7 @@
     margin-top:5px;
     display:none;
   }
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
   @media(max-width:480px){.row2{grid-template-columns:1fr;}}
 
   .choice-group{display:flex;flex-direction:column;gap:8px;}
