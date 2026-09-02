@@ -30,14 +30,38 @@ authorization record.
 
 ## Internal orders view
 
-`admin.html` is a password-protected page for staff to browse submitted
-orders — no service-role key involved. It signs in with Supabase Auth and
-relies on the `authenticated` role's SELECT policy on `label_orders` (see
-`supabase/migrations/0004_staff_read_access.sql`). There is no public
-sign-up: create staff logins in the Supabase dashboard under
-**Authentication → Users → Add user**. The page is `noindex` and unlinked
-from the public form, but it is still reachable by anyone who has the URL —
-the login screen is what protects it, not obscurity.
+`admin.html` is a staff-only page for browsing submitted orders — no
+service-role key involved. It signs in with Supabase Auth, three ways:
+
+- **Google**, restricted to `@beaconsoftware.com`
+- **Microsoft**, restricted to `@toolhound.com`
+- **Email + password**, for an account created manually in the Supabase
+  dashboard (**Authentication → Users → Add user**) — no public sign-up
+
+Once signed in, the `authenticated` role's SELECT policy on `label_orders`
+(`supabase/migrations/0004_staff_read_access.sql`) is what actually allows
+reading orders. The page is `noindex` and unlinked from the public form, but
+it is still reachable by anyone who has the URL — the login screen is what
+protects it, not obscurity.
+
+The domain restriction is enforced twice: `admin.js` hints each provider's
+account picker toward the right domain and re-checks the signed-in email
+before showing any data, but the real boundary is
+`supabase/migrations/0005_oauth_domain_restriction.sql` — a trigger on
+`auth.users` that rejects account creation outright for a Google or
+Microsoft sign-in outside the approved domain. A client-side check alone
+would not be a boundary, since the Auth API can be called directly.
+
+**One manual step is required before Google/Microsoft sign-in works**: the
+OAuth providers themselves are enabled in the Supabase dashboard, not from
+this repo. In the **ToolHound Label Orders** project, go to
+**Authentication → Sign In / Providers**, enable **Google** and **Azure**,
+and give each the Client ID/Secret from a Google Cloud OAuth app and a
+Microsoft Entra ID (Azure AD) app registration respectively (reuse the ones
+already set up for the ToolHound Dashboard if that's simpler than creating
+new ones — a Google/Azure app can serve multiple redirect URIs). Add this
+project's callback URL — shown on that same settings page — as an
+authorized redirect URI in each app.
 
 ## Layout
 

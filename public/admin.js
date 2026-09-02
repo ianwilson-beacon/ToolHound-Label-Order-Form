@@ -1,12 +1,23 @@
 /**
  * Internal, password-protected view of submitted label orders.
  *
- * Staff sign in with a Supabase Auth account created by an admin in the
- * Supabase dashboard (there is no public sign-up). Once signed in, the
- * `authenticated` role's SELECT policy on `label_orders` (see
- * supabase/migrations/0004_staff_read_access.sql) allows reading orders —
- * still with no INSERT/UPDATE/DELETE, and still no service-role key anywhere
- * in this client code.
+ * Staff sign in one of three ways:
+ *   - Google, restricted to @beaconsoftware.com
+ *   - Microsoft, restricted to @toolhound.com
+ *   - Email + password, for an account created by an admin in the Supabase
+ *     dashboard (there is no public sign-up for this path)
+ *
+ * The domain restriction on the OAuth paths is enforced in the database — a
+ * trigger on auth.users (see supabase/migrations/0005_oauth_domain_restriction.sql)
+ * rejects account creation for any Google/Microsoft sign-in outside the
+ * approved domain, so a client-side bypass can't grant access. This file also
+ * checks the domain again after sign-in as a second line of defense and to
+ * give a clear message quickly, but the database check is the real boundary.
+ *
+ * Once signed in, the `authenticated` role's SELECT policy on `label_orders`
+ * (see supabase/migrations/0004_staff_read_access.sql) allows reading orders
+ * — still with no INSERT/UPDATE/DELETE, and still no service-role key
+ * anywhere in this client code.
  */
 (function () {
   'use strict';
@@ -20,6 +31,21 @@
     return;
   }
   var client = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+
+  var OAUTH_DOMAINS = { google: 'beaconsoftware.com', azure: 'toolhound.com' };
+
+  function emailDomain(email) {
+    return String(email || '').split('@')[1] || '';
+  }
+
+  /** Belt-and-suspenders check: the real boundary is the database trigger. */
+  function domainAllowedForSession(session) {
+    var provider = session && session.user && session.user.app_metadata
+      && session.user.app_metadata.provider;
+    var required = OAUTH_DOMAINS[provider];
+    if (!required) return true; // email/password accounts aren't domain-restricted here
+    return emailDomain(session.user.email).toLowerCase() === required;
+  }
 
   function el(tag, attrs, children) {
     var e = document.createElement(tag);
@@ -44,6 +70,21 @@
     card.appendChild(el('h2', { class: 'step-title' }, 'Staff Sign In'));
     if (message) card.appendChild(el('div', { class: 'form-error', role: 'alert' }, message));
 
+    var oauthRow = el('div', { class: 'oauth-row' });
+    oauthRow.appendChild(el('button', {
+      type: 'button',
+      class: 'oauth-btn',
+      onclick: function () { doOAuthLogin('google'); }
+    }, 'Continue with Google (@beaconsoftware.com)'));
+    oauthRow.appendChild(el('button', {
+      type: 'button',
+      class: 'oauth-btn',
+      onclick: function () { doOAuthLogin('azure'); }
+    }, 'Continue with Microsoft (@toolhound.com)'));
+    card.appendChild(oauthRow);
+
+    card.appendChild(el('div', { class: 'oauth-divider' }, 'or sign in with a password'));
+
     var emailInput = el('input', { type: 'email', placeholder: 'you@toolhound.com', autocomplete: 'username' });
     var passInput = el('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
 
@@ -66,9 +107,31 @@
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     client.auth.signInWithPassword({ email: email, password: password }).then(function (res) {
-      if (res.error) { renderLogin(res.error.message || 'Sign in failed.'); return; }
-      loadOrders();
+      // On success, the onAuthStateChange listener below takes it from here.
+      if (res.error) { renderLogin(res.error.message || 'Sign in failed.'); }
     });
+  }
+
+  function doOAuthLogin(provider) {
+    var opts = { redirectTo: window.location.origin + '/admin.html' };
+    // Hints the provider's own account picker toward the right domain. This
+    // is a convenience, not the security boundary — the database trigger is.
+    if (provider === 'google') opts.queryParams = { hd: OAUTH_DOMAINS.google };
+    else if (provider === 'azure') opts.queryParams = { domain_hint: OAUTH_DOMAINS.azure };
+    client.auth.signInWithOAuth({ provider: provider, options: opts });
+  }
+
+  /** After any sign-in, confirm the domain before showing order data. */
+  function checkDomainAndLoad(session) {
+    if (!session) { renderLogin(null); return; }
+    if (!domainAllowedForSession(session)) {
+      var required = OAUTH_DOMAINS[session.user.app_metadata.provider];
+      client.auth.signOut().then(function () {
+        renderLogin('That account is not on an approved domain (' + required + '). Signed out.');
+      });
+      return;
+    }
+    loadOrders();
   }
 
   function renderOrders(rows) {
@@ -139,8 +202,31 @@
       });
   }
 
-  client.auth.getSession().then(function (res) {
-    if (res.data && res.data.session) loadOrders();
-    else renderLogin(null);
+  /**
+   * A rejected OAuth sign-in (wrong domain, caught by the database trigger)
+   * comes back as `#error=...&error_description=...` on the redirect URL
+   * rather than a promise rejection, since the failure happens after the
+   * provider hands off to Supabase. Surface it, then drop it from the URL.
+   */
+  function oauthErrorFromUrl() {
+    var hash = window.location.hash || '';
+    if (hash.indexOf('error=') === -1) return null;
+    var params = new URLSearchParams(hash.replace(/^#/, ''));
+    var desc = params.get('error_description') || params.get('error');
+    history.replaceState(null, '', window.location.pathname);
+    return desc ? decodeURIComponent(desc.replace(/\+/g, ' ')) : 'Sign in failed.';
+  }
+
+  var urlError = oauthErrorFromUrl();
+  if (urlError) {
+    renderLogin(urlError);
+  } else {
+    client.auth.getSession().then(function (res) {
+      checkDomainAndLoad(res.data && res.data.session);
+    });
+  }
+
+  client.auth.onAuthStateChange(function (event, session) {
+    if (event === 'SIGNED_IN') checkDomainAndLoad(session);
   });
 })();
