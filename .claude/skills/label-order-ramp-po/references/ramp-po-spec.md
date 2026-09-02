@@ -159,6 +159,33 @@ PO total (check): 1,097.37 USD
 - **Missing vendor quote** is an expected state. Build the PO with Rate and
   total as `NEEDS INPUT` and report it as pending rather than estimating.
 
+## What the PO history corroborates
+
+Checked against a QuickBooks export of **602 Metalcraft USD purchase orders,
+2010-01-04 to 2026-06-24** — the complete label PO history. It is a
+header-level export, so it carries no line items, descriptions, quantities or
+unit rates, and its Memo column is empty on all but one row. It cannot supply a
+vendor rate. What it does settle:
+
+- **Vendor name** is exactly `Metalcraft USD`, on all 602.
+- **The COGS default is current practice.** Label POs were coded
+  `*Inventory Asset` through 2023, and that coding stops there;
+  `*Cost of Goods Sold` appears from 2023 and is the only non-split coding used
+  in 2024, 2025 and 2026. So `506000 - Cost of Goods Sold - Hardware` matches
+  where this has been heading, rather than contradicting the older records.
+- **Typical PO size** is a median near \$600, clustering \$270–\$1,600, with a
+  full range of roughly \$200–\$6,300. That range is too wide to police a
+  mistyped rate — a tenfold slip lands inside it — so the script checks the
+  per-label rate instead, warning outside \$0.01–\$2.00. Known real rates are
+  0.13635 and 0.83124.
+- **Volume** is 19–48 POs a year, so a handful a month. Low enough that manual
+  entry into Ramp is reasonable and there is no case for bulk import.
+- **PO numbers are one continuous sequence.** A `DP-` prefix was used until
+  2017 (`DP-09709`) and then dropped mid-sequence; the latest is `10406`.
+  NetSuite assigns these, so there is nothing to supply.
+- **Sales tax is normally zero** — one row in June 2026 carried \$67.40. The
+  request form has no tax field anyway.
+
 ## Source documents
 
 In the established Linear-driven process, a label order arrives as an issue

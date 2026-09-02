@@ -45,6 +45,17 @@ BILLABLE = "No"
 
 LABEL_STOCK = '.002" Premium Poly Pro barcode labels'
 
+# Sanity check on the per-label rate rather than the PO total.
+#
+# The total is the wrong thing to test: 602 historical Metalcraft POs run from
+# roughly $200 to $6,300, so a tenfold rate error still lands inside the range
+# (0.83124 typed as 8.3124 gives $4,838, and a real 2025 PO was $6,257). The
+# rate itself is far tighter -- poly label costs are cents per label, the known
+# real rates being 0.13635 and 0.83124 -- so a rate above a dollar is almost
+# certainly a misplaced decimal, and that is catchable where the total is not.
+RATE_SUSPICIOUS_ABOVE = 2.00
+RATE_SUSPICIOUS_BELOW = 0.01
+
 # Ramp's ship-to country field wants the long form.
 COUNTRY_LONG = {
     "us": "United States of America",
@@ -278,6 +289,13 @@ def build(rows, opts):
             )
         else:
             out.append(f"Line {i} rate: {rate}")
+            if rate > RATE_SUSPICIOUS_ABOVE or rate < RATE_SUSPICIOUS_BELOW:
+                flags.append(
+                    f"{ref}: rate of {rate} per label is outside the cents-per-label "
+                    "range these cost (real rates have been 0.13635 and 0.83124). "
+                    "Check the decimal place — the PO total will look plausible "
+                    "either way, so this is the only place the slip shows."
+                )
             if isinstance(qty, int):
                 total += rate * qty
             else:
