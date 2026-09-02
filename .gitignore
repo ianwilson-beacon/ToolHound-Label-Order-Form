@@ -4,3 +4,4 @@ playwright-report/
 .vercel
 .DS_Store
 *.log
+public/admin-config.js

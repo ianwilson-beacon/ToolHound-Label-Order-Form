@@ -1,0 +1,8 @@
+# Supabase CLI project config.
+#
+# notify-sales is called by a Database Webhook, which sends a custom header
+# rather than a user JWT, so the platform's default JWT check has to be off.
+# The function authenticates the caller itself against NOTIFY_WEBHOOK_SECRET —
+# see supabase/functions/notify-sales/index.ts.
+[functions.notify-sales]
+verify_jwt = false

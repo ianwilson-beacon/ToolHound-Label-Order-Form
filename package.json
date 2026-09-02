@@ -4,7 +4,9 @@
   "private": true,
   "description": "Public form for authorizing custom ToolHound label orders.",
   "scripts": {
-    "dev": "python3 -m http.server 4173 --directory public",
+    "build": "node scripts/build-admin-config.js",
+    "dev": "npm run build && python3 -m http.server 4173 --directory public",
+    "pretest": "node scripts/build-admin-config.js",
     "test": "playwright test",
     "test:headed": "playwright test --headed"
   },
