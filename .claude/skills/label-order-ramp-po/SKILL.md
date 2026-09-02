@@ -115,6 +115,26 @@ scrolling past:
 - **Different customers in one batch.** A Ramp PO carries one vendor and one
   ship-to, so orders for different customers need separate POs.
 
+## Label stock, size and sequence
+
+The order form captures none of these, and real POs vary on all three:
+
+- **Stock** defaults to the Ramp-era `.002" Premium Poly Pro barcode labels`
+  and warns that it is an assumption. Past orders have also used Premium Poly
+  Labels, Anodized Aluminium Foil (3 mil) and ValuMark Polypro including a
+  white-on-red variant — pass `--stock premium-poly|aluminium|valumark`.
+- **Size** has only ever been `1.50" x 0.75"` or `1.25" x 0.50"` on past POs.
+  Anything else passes through but gets flagged.
+- **Sequences can be alphanumeric** (`VOL6001 - VOL9000`). `start_seq` is an
+  integer column, so pass `--series-prefix VOL`.
+
+Note also that the description format itself is unsettled: the POs actually
+sent through QuickBooks in 2024 used a different, multi-line shape and priced
+per lot rather than per label. The script emits the Ramp-era format. If a PO
+comes back queried by the vendor, read
+[`references/ramp-po-spec.md`](references/ramp-po-spec.md) before assuming the
+script is wrong.
+
 ## Fixed values
 
 Vendor is **always Metalcraft USD** for label orders, which sets currency to

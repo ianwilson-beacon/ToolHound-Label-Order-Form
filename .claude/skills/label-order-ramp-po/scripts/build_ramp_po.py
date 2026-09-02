@@ -43,7 +43,21 @@ NETSUITE_CLASSIFICATION = "Non-Recurring Revenue - Hardware"
 NETSUITE_DIVISION = ""          # deliberately blank
 BILLABLE = "No"
 
-LABEL_STOCK = '.002" Premium Poly Pro barcode labels'
+# Label stock. The Ramp-era spec names one product; the QuickBooks POs actually
+# sent in 2024 show at least four, so the stock is a choice rather than a
+# constant. Keys are what --stock accepts; values are what the vendor reads.
+STOCK_TYPES = {
+    "poly": '.002" Premium Poly Pro barcode labels',   # Ramp-era spec wording
+    "premium-poly": "Premium Poly Labels",
+    "aluminium": "Anodized Aluminium Foil Label, 3 mil",
+    "valumark": "ValuMark Polypro Barcode Labels",
+}
+DEFAULT_STOCK = "poly"
+
+# Sizes seen on real POs. Not a whitelist — an unlisted size is passed through —
+# but a size outside this set is worth a second look, since the order form does
+# not capture size and it has to be typed in from the acknowledgement form.
+KNOWN_SIZES = {("1.50", "0.75"), ("1.25", "0.50")}
 
 # Sanity check on the per-label rate rather than the PO total.
 #
@@ -182,10 +196,27 @@ def label_content(row, flags, logo_name=None):
     return NEEDS_INPUT
 
 
-def line_description(row, size, flags, logo_name=None):
+def line_description(row, size, flags, logo_name=None, stock=None, series_prefix=None):
+    stock_text = STOCK_TYPES.get(stock or DEFAULT_STOCK, stock or STOCK_TYPES[DEFAULT_STOCK])
+    if not stock:
+        flags.append(
+            f"{row.get('order_ref')}: label stock assumed to be "
+            f"\"{STOCK_TYPES[DEFAULT_STOCK]}\". Real orders have also used Premium "
+            "Poly Labels, Anodized Aluminium Foil (3 mil) and ValuMark Polypro "
+            "(incl. white-on-red). The order form does not capture stock, so "
+            "confirm it against the acknowledgement form and pass --stock "
+            "premium-poly|aluminium|valumark if it differs."
+        )
+
     parsed = parse_size(size)
     if parsed:
         dims = f'({parsed[0]}" x {parsed[1]}")'
+        if parsed not in KNOWN_SIZES:
+            flags.append(
+                f"{row.get('order_ref')}: size {parsed[0]}\" x {parsed[1]}\" is not "
+                "one seen on past POs (1.50 x 0.75 and 1.25 x 0.50). Double-check "
+                "it against the acknowledgement form."
+            )
     else:
         dims = f'({NEEDS_INPUT}" x {NEEDS_INPUT}")'
         flags.append(
@@ -196,6 +227,16 @@ def line_description(row, size, flags, logo_name=None):
 
     qty = row.get("quantity")
     start = row.get("start_seq")
+    if series_prefix:
+        # Real POs have carried alphanumeric series (VOL6001 - VOL9000). The
+        # order form stores start_seq as an integer and cannot express that, so
+        # the prefix is supplied here and applied to both ends.
+        flags.append(
+            f"{row.get('order_ref')}: series prefix {series_prefix!r} applied — the "
+            "order form stores the sequence as a plain number, so this came from "
+            "you rather than the customer. Confirm it matches the acknowledgement "
+            "form."
+        )
     if isinstance(qty, int) and isinstance(start, int) and qty > 0:
         end = start + qty - 1
         if start == 0:
@@ -208,9 +249,11 @@ def line_description(row, size, flags, logo_name=None):
         end = NEEDS_INPUT
 
     content = label_content(row, flags, logo_name)
+    s_start = f"{series_prefix}{start}" if series_prefix else start
+    s_end = f"{series_prefix}{end}" if series_prefix and end != NEEDS_INPUT else end
     return (
-        f"{LABEL_STOCK} {dims}; {content}; "
-        f"SEQUENCE START: {start}; SEQUENCE END: {end}"
+        f"{stock_text} {dims}; {content}; "
+        f"SEQUENCE START: {s_start}; SEQUENCE END: {s_end}"
     )
 
 
@@ -276,7 +319,7 @@ def build(rows, opts):
 
         out.append(
             f"Line {i} description: "
-            f"{line_description(row, size, flags, opts.logo_name_for(ref, i))}"
+            f"{line_description(row, size, flags, opts.logo_name_for(ref, i), opts.stock_for(ref, i), opts.series_prefix_for(ref, i))}"
         )
         out.append(f"Line {i} quantity: {qty if qty is not None else NEEDS_INPUT}")
         if rate is None:
@@ -334,6 +377,8 @@ class Opts:
         self.customer_po = args.customer_po
         self._sizes = self._index(args.size)
         self._logo_names = self._index(args.logo_name)
+        self._stocks = self._index(args.stock)
+        self._prefixes = self._index(args.series_prefix)
         self._rates = self._index(args.rate, cast=float)
 
     @staticmethod
@@ -354,9 +399,19 @@ class Opts:
         return self._rates[i - 1] if len(self._rates) >= i else self._rates[0]
 
     def logo_name_for(self, ref, i):
-        if not self._logo_names:
+        return self._pick(self._logo_names, i)
+
+    def stock_for(self, ref, i):
+        return self._pick(self._stocks, i)
+
+    def series_prefix_for(self, ref, i):
+        return self._pick(self._prefixes, i)
+
+    @staticmethod
+    def _pick(values, i):
+        if not values:
             return None
-        return self._logo_names[i - 1] if len(self._logo_names) >= i else self._logo_names[0]
+        return values[i - 1] if len(values) >= i else values[0]
 
 
 def main():
@@ -369,6 +424,11 @@ def main():
                    help='Label size, e.g. 1.50x0.75. Repeat per line item.')
     p.add_argument("--rate", action="append",
                    help="Vendor cost per label. Repeat per line item.")
+    p.add_argument("--stock", action="append",
+                   choices=sorted(STOCK_TYPES),
+                   help="Label stock. Defaults to %(default)s. Repeat per line item.")
+    p.add_argument("--series-prefix", dest="series_prefix", action="append",
+                   help='Alphanumeric sequence prefix, e.g. VOL. Repeat per line item.')
     p.add_argument("--logo-name", dest="logo_name", action="append",
                    help='Customer name as it should read on the label, e.g. "Shaw". '
                         "Defaults to the Company field. Repeat per line item.")

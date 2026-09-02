@@ -13,6 +13,7 @@ Ramp's form does not look like what the script assumes.
 - [Line description format](#line-description-format)
 - [Worked example — Shaw Group](#worked-example--shaw-group)
 - [Edge cases](#edge-cases)
+- [Unresolved: two live description formats](#unresolved-two-live-description-formats)
 - [Source documents](#source-documents)
 
 ## Fixed blocks
@@ -158,6 +159,70 @@ PO total (check): 1,097.37 USD
   by sequence range, not by position.
 - **Missing vendor quote** is an expected state. Build the PO with Rate and
   total as `NEEDS INPUT` and report it as pending rather than estimating.
+
+## Unresolved: two live description formats
+
+Five QuickBooks PO PDFs actually sent to Metalcraft (P.O. 10262–10268,
+Jan–Mar 2024) use a **different description format** from the Ramp-era spec
+above. Both are real. Which one Metalcraft should receive going forward has
+not been settled, so this is a question to ask rather than a thing to decide.
+
+The Ramp-era spec (what the script emits):
+
+```
+.002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: 1; SEQUENCE END: 500
+```
+
+What those PDFs carried — multi-line, different keywords, `Lot of N` rather
+than a quantity:
+
+```
+Premium Poly Labels - Lot of 5000
+1.5" x 0.75"
+Text: (logo)  Greyscale
+Series: 30000 - 34999
+```
+
+Other differences in the QuickBooks era worth knowing about:
+
+- **QTY was 1 and pricing was per lot**, where the Ramp spec prices per label
+  (0.83124 × 500). Opposite billing units, so a rate cannot be moved between
+  the two formats without converting.
+- `Text:` covered **both** logos (`(logo)  Greyscale`) and literal text
+  (`AECON`, `Driver Pipeline Co`, `2024`), where the Ramp spec separates
+  `{Customer} logo (colour)` from `TEXT: "..."`.
+- **`SHIP VIA`** (UPS, Best Way) and a `PART NO.` keyed to stock and lot size
+  (`PPQR-5000`, `5410-1-3000`, `31808002`, `31808102`) existed as fields. The
+  Ramp request form has neither.
+- **`Customer PO:` and `Attn:` sat inside the description block**, where the
+  Ramp spec puts the customer PO in Memo to Supplier.
+- Tax code was `E` (exempt) and totals printed as 0.00 on these copies.
+- The ToolHound letterhead read **237, 200 Carnegie Drive, St. Albert AB
+  T8N5A8**, not the Toronto Bill To block above. Same phone. Presumably a move,
+  but confirm which address a current PO should carry.
+
+### Label stock and sizes actually ordered
+
+The Ramp-era spec names a single product; these POs show four, so the script
+takes `--stock`:
+
+| `--stock` | Renders as | Seen with |
+| --- | --- | --- |
+| `poly` (default) | `.002" Premium Poly Pro barcode labels` | Ramp-era spec wording |
+| `premium-poly` | `Premium Poly Labels` | 1.5" x 0.75" lot 5000; 1.25" x 0.5" lot 3,000 |
+| `aluminium` | `Anodized Aluminium Foil Label, 3 mil` | 1.25" x 0.50" lot 3000 |
+| `valumark` | `ValuMark Polypro Barcode Labels` | 1.25" x 0.50" lot 2500, white on red |
+
+Only two sizes appear across all five: **1.50" x 0.75"** and **1.25" x 0.50"**.
+The script passes any size through but flags anything outside those two, since
+size has to be typed in by hand.
+
+**Sequences can be alphanumeric.** One PO ran `Series: VOL6001 - VOL9000`. The
+order form stores `start_seq` as an integer and cannot express a prefix, so
+pass `--series-prefix VOL` and the script applies it to both ends.
+
+ValuMark's `White Lettering on Red Background` also shows colour can mean a
+specific ink/stock combination rather than the form's Yes/No full-colour flag.
 
 ## What the PO history corroborates
 
