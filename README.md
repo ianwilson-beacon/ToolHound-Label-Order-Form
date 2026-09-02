@@ -156,6 +156,14 @@ where the uploaded artwork is not, and the difference is the database
 constraint: `signature_data` is bounded to a `data:image/png;base64,` payload,
 and a PNG cannot carry script.
 
+Each order's drawer also has a **Download PO inputs** button, producing
+`<order_ref>-ramp-po-input.json` — every field the Metalcraft PO needs, in the
+shape the `label-order-ramp-po` skill reads. Hand that file to Claude and ask
+for the Ramp PO; no database access required. It deliberately excludes the
+artwork and the signature, which are large and irrelevant to a PO, and it names
+the two things it cannot contain: the vendor rate and the Metalcraft quotation
+number, which come from the quote for that order.
+
 Artwork is downloaded, never previewed. Customers upload SVG because vector art
 reproduces best at label size, and an SVG can carry script; rendering one
 inline on a page holding a live staff session would be stored XSS with the

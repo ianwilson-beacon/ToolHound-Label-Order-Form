@@ -1,0 +1,25 @@
+{
+  "skill": "label-order-ramp-po",
+  "purpose": "Inputs for the Metalcraft vendor PO. Give this file to Claude and ask it to build the Ramp PO.",
+  "still_needed": [
+    "Metalcraft rate per label, from their quote for this order",
+    "Metalcraft quotation number, from the idplate thread"
+  ],
+  "generated_at": "2026-09-02T22:10:00.000Z",
+  "source": "https://tool-hound-label-order-form.vercel.app/admin",
+  "orders": [
+    {
+      "order_ref": "THL-DL-1", "submitted_at": "2026-09-02T17:51:15.388Z", "status": "received",
+      "company_name": "Voltage Power", "contact_name": "Dana Ruiz",
+      "contact_email": "dana@voltagepower.example",
+      "address": "106 Mountain View Road, Unit A", "city": "Centerport",
+      "state_province": "MB", "postal_code": "R4B 0A3", "country": "Canada",
+      "attention_name": "Mike Betts", "ship_to_phone": "204-555-0117",
+      "customer_po": "4500620115",
+      "logo_choice": "custom_text", "logo_file_name": null,
+      "text_lines": ["AECON"], "full_color": "No",
+      "label_width_in": "1.25", "label_height_in": "0.50",
+      "quantity": 3000, "start_seq": 6001, "seq_prefix": "VOL", "instructions": null
+    }
+  ]
+}

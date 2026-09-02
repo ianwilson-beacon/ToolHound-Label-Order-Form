@@ -521,3 +521,41 @@ test('the list query pulls the signature but never the artwork', async ({ page }
   expect(selects.some((s) => String(s).indexOf('signature_data') !== -1)).toBe(true);
   expect(selects.some((s) => String(s).indexOf('logo_file_data') !== -1)).toBe(false);
 });
+
+test('hands the order over as a file the Ramp PO skill can read', async ({ page }) => {
+  await openDashboard(page);
+
+  await page
+    .locator('tr.row', { hasText: 'THL-AAAA-BBBBBB' })
+    .getByRole('button', { name: 'Details' })
+    .click();
+
+  const wait = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download PO inputs' }).click();
+  const download = await wait;
+
+  expect(download.suggestedFilename()).toBe('THL-AAAA-BBBBBB-ramp-po-input.json');
+
+  const path = await download.path();
+  const payload = JSON.parse(require('fs').readFileSync(path, 'utf8'));
+
+  // Self-describing, because this file gets opened later by someone who has
+  // forgotten what it was.
+  expect(payload.skill).toBe('label-order-ramp-po');
+  expect(payload.purpose).toMatch(/Ramp PO/);
+  expect(payload.still_needed.join(' ')).toMatch(/rate/);
+
+  expect(payload.orders).toHaveLength(1);
+  const order = payload.orders[0];
+  expect(order.order_ref).toBe('THL-AAAA-BBBBBB');
+  expect(order.company_name).toBe('Northgate Mining');
+  expect(order.quantity).toBe(2500);
+  expect(order.start_seq).toBe(1);
+  expect(order.logo_file_name).toBe('northgate.svg');
+
+  // The artwork payload and the signature are both large and neither is needed
+  // to build a PO, so they stay out of the file.
+  expect(order).not.toHaveProperty('logo_file_data');
+  expect(order).not.toHaveProperty('signature_data');
+  expect(JSON.stringify(payload)).not.toContain('PHN2Zy8+');
+});

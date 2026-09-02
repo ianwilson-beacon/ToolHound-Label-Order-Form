@@ -12,8 +12,15 @@ Metalcraft charges. Rather than guess, anything the form cannot supply is
 emitted as NEEDS INPUT and repeated in a checklist at the end. A PO with three
 honest blanks is useful; one with three invented numbers is a liability.
 
+Input is JSON: either the rows a Supabase query returns, or the file the
+orders dashboard hands you from an order's "Download PO inputs" button, which
+is the same rows wrapped in an object under "orders".
+
 Usage:
-  # single order, everything the form knows
+  # the file downloaded from the dashboard
+  build_ramp_po.py --file THL-MTKE78Z7-Z9GAB4-ramp-po-input.json --rate 0.14
+
+  # or straight from a query
   supabase-query ... | build_ramp_po.py
 
   # fill in what the form cannot know
@@ -435,9 +442,21 @@ def main():
 
     raw = open(args.file).read() if args.file else sys.stdin.read()
     data = json.loads(raw)
-    rows = data if isinstance(data, list) else [data]
+
+    # Three accepted shapes, because the input arrives two ways. A raw Supabase
+    # query gives a list (or a bare object for one row). The dashboard's
+    # "Download PO inputs" button wraps that list in an object carrying a note
+    # about what the file is, so a file sitting in a Downloads folder next month
+    # still explains itself.
+    if isinstance(data, dict) and isinstance(data.get("orders"), list):
+        rows = data["orders"]
+    elif isinstance(data, list):
+        rows = data
+    else:
+        rows = [data]
+
     if not rows:
-        sys.exit("No rows given.")
+        sys.exit("No orders in the input.")
 
     block, flags = build(rows, Opts(args))
 

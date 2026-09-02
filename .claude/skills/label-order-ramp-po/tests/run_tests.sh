@@ -62,6 +62,22 @@ for unwanted in "no label size on the order" "No customer PO number" \
   fi
 done
 
+# The dashboard's download button and this script are two halves of one
+# workflow, so the file it emits has to parse here without editing.
+dl=$(python3 ../scripts/build_ramp_po.py --file dashboard_download.json --rate 0.14 --quote Q9)
+for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
+            "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
+            "Customer PO # 4500620115" \
+            "Ship-to first name: Mike" \
+            "PO total (check): 420.00 USD"; do
+  if grep -qF "$want" <<<"$dl"; then
+    echo "PASS  dashboard download parsed: $want"
+  else
+    echo "FAIL  dashboard download NOT parsed: $want"
+    fail=1
+  fi
+done
+
 # Vendor and currency are fixed for label orders.
 for want in "Vendor: Metalcraft USD" "Currency: USD" "Entity: ToolHound Inc."; do
   grep -qF "$want" <<<"$bare" && echo "PASS  fixed value: $want" \

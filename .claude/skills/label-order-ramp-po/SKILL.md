@@ -41,8 +41,16 @@ acknowledgement form.
 
 ## How to run it
 
-**1. Pull the rows.** Query Supabase for the orders in question. Use the
-`mcp__Supabase__execute_sql` tool against project `ayqcteloqdrlemehozzk`:
+**1. Get the order data.** Two ways in, and the first is usually already done
+for you:
+
+*The dashboard file.* Every order on `/admin` has a **Download PO inputs**
+button in its detail drawer, producing `<order_ref>-ramp-po-input.json`. If
+someone has handed you that file, use it — it already holds every field this
+needs, and no database access is required.
+
+*Or query Supabase* with `mcp__Supabase__execute_sql` against project
+`ayqcteloqdrlemehozzk`:
 
 ```sql
 select order_ref, company_name, contact_name, contact_email,
@@ -59,21 +67,27 @@ order by start_seq;
 Order by `start_seq` so multiple line items come out in sequence order. Skip
 `logo_file_data` — it is megabytes of base64 and nothing here needs it.
 
-**2. Build the block.** Save the returned rows as a JSON array and run:
+**2. Build the block.** Point the script at the file either way:
 
 ```bash
 python3 .claude/skills/label-order-ramp-po/scripts/build_ramp_po.py \
-    --file rows.json \
+    --file THL-MTKE78Z7-Z9GAB4-ramp-po-input.json \
     --rate 0.83124 \
     --quote "257037 & 257038"
 ```
 
-Usually that is all you need: size, prefix, customer PO, phone and receiving
-contact come off the row. `--size`, `--series-prefix`, `--customer-po` and
-`--logo-name` are overrides for an older order that lacks them, or for a
-correction. Anything still unknown comes out as `NEEDS INPUT` with a checklist
-under the block. Repeatable flags apply per line item; give one value and it
-applies to every line.
+It reads the dashboard's wrapped file, a plain array of rows, or a single row
+object. Usually `--rate` and `--quote` are all you need to add: size, prefix,
+customer PO, phone and receiving contact come off the order. `--size`,
+`--series-prefix`, `--customer-po` and `--logo-name` are overrides for an older
+order that lacks them, or for a correction. Anything still unknown comes out as
+`NEEDS INPUT` with a checklist under the block. Repeatable flags apply per line
+item; give one value and it applies to every line.
+
+**One PO, several label sets?** The order form takes one set per submission, so
+a customer wanting two gets two `THL-` references. Download both files and pass
+the orders together — the script makes them separate line items on one PO, as
+long as they are the same customer.
 
 **3. Hand over the output verbatim.** The script prints the Ramp request form
 fields in the order the form asks for them, so they can be worked straight down

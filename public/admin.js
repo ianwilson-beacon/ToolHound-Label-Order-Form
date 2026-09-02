@@ -324,6 +324,63 @@
   // Data
   // ---------------------------------------------------------------------------
 
+  /**
+   * The columns the Ramp PO script reads, in the order it presents them.
+   * Enumerated rather than spreading the whole row: logo_file_data alone is
+   * megabytes of base64, and a file handed to somebody else should carry what
+   * the job needs and nothing more.
+   */
+  var PO_INPUT_FIELDS = [
+    'order_ref', 'submitted_at', 'status',
+    'company_name', 'contact_name', 'contact_email',
+    'address', 'city', 'state_province', 'postal_code', 'country',
+    'attention_name', 'ship_to_phone', 'customer_po',
+    'logo_choice', 'logo_file_name', 'text_lines', 'full_color',
+    'label_width_in', 'label_height_in',
+    'quantity', 'start_seq', 'seq_prefix', 'instructions'
+  ];
+
+  /**
+   * Hand the order over as a file the label-order-ramp-po skill can read
+   * directly, so building a PO does not need a database query at all.
+   *
+   * The rows are wrapped in an object with a note rather than emitted as a
+   * bare array: this file gets downloaded, sat on, and opened later by someone
+   * who has forgotten what it was, so it should say so itself. The script
+   * accepts either shape.
+   */
+  function downloadPoInputs(orders, filename) {
+    var rows = orders.map(function (o) {
+      var out = {};
+      PO_INPUT_FIELDS.forEach(function (k) {
+        if (o[k] !== undefined) out[k] = o[k];
+      });
+      return out;
+    });
+
+    var payload = {
+      skill: 'label-order-ramp-po',
+      purpose: 'Inputs for the Metalcraft vendor PO. Give this file to Claude '
+        + 'and ask it to build the Ramp PO.',
+      still_needed: [
+        'Metalcraft rate per label, from their quote for this order',
+        'Metalcraft quotation number, from the idplate thread'
+      ],
+      generated_at: new Date().toISOString(),
+      source: window.location.origin + '/admin',
+      orders: rows
+    };
+
+    var link = el('a', {
+      href: 'data:application/json;charset=utf-8,'
+        + encodeURIComponent(JSON.stringify(payload, null, 2)),
+      download: filename
+    });
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   function getDb() { return client || getClient(); }
 
   function loadOrders() {
@@ -821,6 +878,24 @@
       ['Current status', STATUS_LABELS[order.status] || order.status],
       ['Last updated', fmtDateTime(order.updated_at)]
     ]);
+
+    drawer.appendChild(el('div', { class: 'review-block' }, [
+      el('h3', { text: 'Vendor PO' }),
+      el('button', {
+        class: 'primary',
+        onclick: function () {
+          downloadPoInputs([order], order.order_ref + '-ramp-po-input.json');
+        }
+      }, 'Download PO inputs'),
+      el('div', {
+        class: 'artwork-note',
+        text: 'A JSON file with everything this order can tell you about the '
+          + 'Metalcraft PO. Hand it to Claude and ask for the Ramp PO. Two '
+          + 'things are not in it and cannot be: the vendor rate and the '
+          + 'Metalcraft quotation number, which come from the quote for this '
+          + 'order.'
+      })
+    ]));
 
     if (order.signature_data) {
       drawer.appendChild(el('div', { class: 'review-block' }, [
