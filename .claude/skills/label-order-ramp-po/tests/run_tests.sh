@@ -23,12 +23,42 @@ fi
 # A run with nothing supplied must not invent values, and must say what it needs.
 bare=$(python3 ../scripts/build_ramp_po.py --file shaw_rows.json)
 for want in "Line 1 rate: NEEDS INPUT" "Metalcraft Quotation: NEEDS INPUT" \
-            "PO total (check): NEEDS INPUT" "label size is not captured"; do
+            "PO total (check): NEEDS INPUT" "no label size on the order"; do
   if grep -qF "$want" <<<"$bare"; then
     echo "PASS  missing input surfaced: $want"
   else
     echo "FAIL  missing input NOT surfaced: $want"
     fail=1
+  fi
+done
+
+# An order carrying the fields the form now asks for should need no flags for
+# them, and should route the shipment to the receiving contact rather than the
+# person who placed the order.
+supplied=$(python3 ../scripts/build_ramp_po.py --file row_supplied.json --rate 0.14 --quote Q9)
+for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
+            "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
+            "Customer PO # 4500620115" \
+            "Ship-to phone: 204-555-0117" \
+            "Ship-to first name: Mike" \
+            "Ship-to last name: Betts" \
+            "Ship-to floor/suite: Unit A"; do
+  if grep -qF "$want" <<<"$supplied"; then
+    echo "PASS  taken from the order row: $want"
+  else
+    echo "FAIL  NOT taken from the order row: $want"
+    fail=1
+  fi
+done
+
+# And none of those should still be asking for input.
+for unwanted in "no label size on the order" "No customer PO number" \
+                "came from the command line"; do
+  if grep -qF "$unwanted" <<<"$supplied"; then
+    echo "FAIL  still flagged despite being on the order: $unwanted"
+    fail=1
+  else
+    echo "PASS  not flagged, the order supplied it: $unwanted"
   fi
 done
 

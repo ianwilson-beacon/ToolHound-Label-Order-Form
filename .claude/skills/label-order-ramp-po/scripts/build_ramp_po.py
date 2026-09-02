@@ -194,7 +194,22 @@ def label_content(row, flags, logo_name=None):
     return NEEDS_INPUT
 
 
+def row_size(row):
+    """The order form now asks for the size, so prefer the row over a flag."""
+    w, h = row.get("label_width_in"), row.get("label_height_in")
+    try:
+        if w is None or h is None:
+            return None
+        w, h = float(w), float(h)
+    except (TypeError, ValueError):
+        return None
+    return f"{w:.2f}x{h:.2f}" if w > 0 and h > 0 else None
+
+
 def line_description(row, size, flags, logo_name=None, series_prefix=None):
+    size = size or row_size(row)
+    if series_prefix is None:
+        series_prefix = (row.get("seq_prefix") or "").strip() or None
     parsed = parse_size(size)
     if parsed:
         dims = f'({parsed[0]}" x {parsed[1]}")'
@@ -207,22 +222,20 @@ def line_description(row, size, flags, logo_name=None, series_prefix=None):
     else:
         dims = f'({NEEDS_INPUT}" x {NEEDS_INPUT}")'
         flags.append(
-            f"{row.get('order_ref')}: label size is not captured by the web order "
-            "form. Take the dimensions from the signed acknowledgement form or the "
-            "Metalcraft quote and re-run with --size."
+            f"{row.get('order_ref')}: no label size on the order. Orders placed "
+            "before the form asked for it have none — take the dimensions from the "
+            "signed acknowledgement form and re-run with --size."
         )
 
     qty = row.get("quantity")
     start = row.get("start_seq")
-    if series_prefix:
-        # Real POs have carried alphanumeric series (VOL6001 - VOL9000). The
-        # order form stores start_seq as an integer and cannot express that, so
-        # the prefix is supplied here and applied to both ends.
+    if series_prefix and not (row.get("seq_prefix") or "").strip():
+        # A prefix supplied by flag rather than by the customer is worth a
+        # second look; one the customer typed into the form is not.
         flags.append(
-            f"{row.get('order_ref')}: series prefix {series_prefix!r} applied — the "
-            "order form stores the sequence as a plain number, so this came from "
-            "you rather than the customer. Confirm it matches the acknowledgement "
-            "form."
+            f"{row.get('order_ref')}: series prefix {series_prefix!r} came from the "
+            "command line, not from the order. Confirm it matches what the "
+            "customer asked for."
         )
     if isinstance(qty, int) and isinstance(start, int) and qty > 0:
         end = start + qty - 1
@@ -260,10 +273,14 @@ def build(rows, opts):
 
     country = normalize_country(first.get("country"))
     street, suite = split_street(first.get("address"))
-    firstname, lastname = split_contact_name(first.get("contact_name"))
+    # Ramp's ship-to contact is whoever receives the shipment, which the form
+    # now asks for separately — it is often not the person who ordered.
+    receiver = (first.get("attention_name") or "").strip() or first.get("contact_name")
+    firstname, lastname = split_contact_name(receiver)
 
+    row_po = (first.get("customer_po") or "").strip()
     quote = opts.quote or NEEDS_INPUT
-    customer_po = opts.customer_po or NEEDS_INPUT
+    customer_po = opts.customer_po or row_po or NEEDS_INPUT
     memo = f"Metalcraft Quotation: {quote}; Customer PO # {customer_po}"
     if not opts.quote:
         flags.append(
@@ -271,10 +288,11 @@ def build(rows, opts):
             "email thread (Jack Ward, jackw@idplate.com), not the order form. "
             "Drop that segment of the memo if the quote has not come back yet."
         )
-    if not opts.customer_po:
+    if customer_po == NEEDS_INPUT:
         flags.append(
-            "Customer PO number is missing. The web order form does not collect "
-            "it — take it from the customer's PO document."
+            "No customer PO number. The form asks for one but it is optional, so "
+            "plenty of orders legitimately have none — check whether this customer "
+            "issues them before chasing it."
         )
 
     out.append(f"Who will own the PO: {opts.owner}")
@@ -285,7 +303,8 @@ def build(rows, opts):
     out.append(f"Ship-to first name: {firstname}")
     out.append(f"Ship-to last name: {lastname}")
     out.append(f"Ship-to phone country: {PHONE_COUNTRY.get(country, NEEDS_INPUT)}")
-    out.append("Ship-to phone: (blank)")
+    phone = (first.get("ship_to_phone") or "").strip()
+    out.append(f"Ship-to phone: {phone or '(blank)'}")
     out.append(f"Ship-to email: {first.get('contact_email') or NEEDS_INPUT}")
     out.append(f"Ship-to country: {country}")
     out.append(f"Ship-to street: {street}")

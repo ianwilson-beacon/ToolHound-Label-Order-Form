@@ -84,7 +84,9 @@
     'company_name', 'contact_name', 'contact_email',
     'address', 'city', 'state_province', 'postal_code', 'country',
     'logo_choice', 'logo_file_name', 'text_lines', 'full_color',
-    'quantity', 'start_seq', 'instructions',
+    'quantity', 'start_seq', 'seq_prefix', 'instructions',
+    'label_width_in', 'label_height_in',
+    'ship_to_phone', 'attention_name', 'customer_po',
     'authorized_name', 'approval_date'
   ].join(',');
 
@@ -207,7 +209,15 @@
     var start = Number(order.start_seq);
     var qty = Number(order.quantity);
     if (!isFinite(start) || !isFinite(qty) || qty < 1) return '—';
-    return start + ' – ' + (start + qty - 1);
+    var pre = order.seq_prefix || '';
+    return pre + start + ' – ' + pre + (start + qty - 1);
+  }
+
+  function labelSize(order) {
+    var w = Number(order.label_width_in);
+    var h = Number(order.label_height_in);
+    if (!isFinite(w) || !isFinite(h) || !w || !h) return '—';
+    return w.toFixed(2) + '" x ' + h.toFixed(2) + '"';
   }
 
   // ---------------------------------------------------------------------------
@@ -790,12 +800,16 @@
       ['Contact', order.contact_name],
       ['Email', order.contact_email],
       ['Ship to', [order.address, order.city, order.state_province, order.postal_code, order.country]
-        .filter(Boolean).join(', ')]
+        .filter(Boolean).join(', ')],
+      ['Receiving contact', order.attention_name],
+      ['Delivery phone', order.ship_to_phone],
+      ['Their PO number', order.customer_po]
     ]);
 
     section('Specification', [
       ['Label', labelSpec(order)],
       ['Full colour', order.full_color],
+      ['Label size', labelSize(order)],
       ['Quantity', order.quantity],
       ['Sequence range', sequenceRange(order)],
       ['Special instructions', order.instructions]

@@ -1,6 +1,6 @@
 ---
 name: label-order-ramp-po
-description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since the web form deliberately omits pricing and label size. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job.
+description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since the web form deliberately omits vendor pricing. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job.
 ---
 
 # Label order to Ramp PO
@@ -17,26 +17,27 @@ someone wants that, they want the `toolhound-invoice-prep` skill instead.
 
 ## The one thing to get right
 
-The web form is a **thinner input** than the signed acknowledgement form this
-process was designed around. It never asks for label size, and it has no idea
-what Metalcraft charges. Three fields therefore cannot come from the order:
+The order form now asks for the label size, sequence prefix, customer PO,
+delivery phone and receiving contact, so most of the PO fills itself. Two
+values still cannot come from a customer, and never will:
 
-| Missing | Where it actually comes from |
+| Missing | Where it comes from |
 | --- | --- |
-| Label size (width × height) | Signed acknowledgement form, or the Metalcraft quote |
-| Rate (vendor cost per label) | Metalcraft's quote **for this order** — the idplate email thread with Jack Ward, `jackw@idplate.com`. Quoted per order, so there is no price list and no previous order to copy from |
+| Rate (vendor cost per label) | Metalcraft's quote **for this order** — the idplate email thread with Jack Ward, `jackw@idplate.com` |
 | Metalcraft quotation number(s) | Same idplate thread |
-| Customer PO number | The customer's own PO document |
 
-Emit these as `NEEDS INPUT` and say so. Never estimate a rate, never infer a
-size from the quantity, and never reuse a rate from a previous order —
-Metalcraft quotes each order individually, so last time's rate is not a stale
-number, it is the wrong one.
+Emit these as `NEEDS INPUT` and say so. Never estimate a rate and never reuse
+one from a previous order — Metalcraft quotes each order individually, so last
+time's rate is not a stale number, it is the wrong one.
 
 A PO with honest blanks gets filled in. One with a plausible-looking wrong
 number gets submitted, and becomes a purchasing error nobody catches until the
 invoice arrives. A missing vendor quote is a normal, expected state, not a
 failure.
+
+Orders placed **before** those fields existed have no size and no prefix. Those
+come out as `NEEDS INPUT` too, and the size has to be read off the signed
+acknowledgement form.
 
 ## How to run it
 
@@ -46,8 +47,10 @@ failure.
 ```sql
 select order_ref, company_name, contact_name, contact_email,
        address, city, state_province, postal_code, country,
+       attention_name, ship_to_phone, customer_po,
        logo_choice, logo_file_name, text_lines, full_color,
-       quantity, start_seq, instructions, status
+       label_width_in, label_height_in,
+       quantity, start_seq, seq_prefix, instructions, status
 from public.label_orders
 where order_ref in ('THL-...')      -- or: where status = 'received'
 order by start_seq;
@@ -61,17 +64,16 @@ Order by `start_seq` so multiple line items come out in sequence order. Skip
 ```bash
 python3 .claude/skills/label-order-ramp-po/scripts/build_ramp_po.py \
     --file rows.json \
-    --size 1.50x0.75 \
     --rate 0.83124 \
-    --quote "257037 & 257038" \
-    --customer-po "1700342 OP Rev. 000" \
-    --logo-name "Shaw"
+    --quote "257037 & 257038"
 ```
 
-Pass only the flags you actually have values for. Everything omitted comes out
-as `NEEDS INPUT` and appears in a checklist under the block. `--size`, `--rate`
-and `--logo-name` repeat per line item; give one value and it applies to every
-line.
+Usually that is all you need: size, prefix, customer PO, phone and receiving
+contact come off the row. `--size`, `--series-prefix`, `--customer-po` and
+`--logo-name` are overrides for an older order that lacks them, or for a
+correction. Anything still unknown comes out as `NEEDS INPUT` with a checklist
+under the block. Repeatable flags apply per line item; give one value and it
+applies to every line.
 
 **3. Hand over the output verbatim.** The script prints the Ramp request form
 fields in the order the form asks for them, so they can be worked straight down
@@ -121,18 +123,17 @@ scrolling past:
 
 ## Size and sequence
 
-The order form captures neither, and both have varied on real orders:
+Both now come from the order, and the script prefers the row over a flag:
 
-- **Size** has only ever been `1.50" x 0.75"` or `1.25" x 0.50"`. Anything else
-  passes through but gets flagged, since it has to be typed in from the
-  acknowledgement form either way.
-- **Sequences can be alphanumeric** (`VOL6001 - VOL9000`). `start_seq` is an
-  integer column, so pass `--series-prefix VOL`.
+- **Size** is a choice of `1.50" x 0.75"` or `1.25" x 0.50"` — the only two
+  ever ordered — plus a free entry. A size outside those two is flagged.
+- **Sequence prefix** handles alphanumeric tags (`VOL6001 - VOL9000`). The
+  numeric part stays in `start_seq`, so the end of the range is still
+  arithmetic. A prefix supplied by flag rather than by the customer is flagged;
+  one the customer typed is not.
 
 Label stock is a single constant, `.002" Premium Poly Pro barcode labels`, as
-the Ramp spec names it. Older QuickBooks POs used other stocks and other
-wording; that format is superseded and kept only as a historical note in the
-reference.
+the Ramp spec names it.
 
 ## Fixed values
 

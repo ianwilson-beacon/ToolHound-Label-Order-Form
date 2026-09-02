@@ -39,6 +39,16 @@
     'application/pdf': 'PDF'
   };
 
+  /**
+   * The only two label sizes in ToolHound's entire Metalcraft order history.
+   * Offering them as a choice rather than a free text box means the common
+   * case is one click and the value that reaches the printer is exact.
+   */
+  var LABEL_SIZES = [
+    { value: '1.50x0.75', label: '1.50" x 0.75"', w: '1.50', h: '0.75' },
+    { value: '1.25x0.50', label: '1.25" x 0.50"', w: '1.25', h: '0.50' }
+  ];
+
   var MAX_TEXT_LINES = 3;
   var MAX_TEXT_LINE_CHARS = 10;
   var MAX_QUANTITY = 1000000;
@@ -69,9 +79,11 @@
       logoChoice: '', logoFileName: '', logoFileData: '',
       textLines: ['', '', ''],
       fullColor: '',
-      quantity: '', startSeq: '', instructions: '',
+      quantity: '', startSeq: '', seqPrefix: '', instructions: '',
+      labelSizeChoice: '', labelWidthIn: '', labelHeightIn: '',
+      shipToPhone: '', attentionName: '', customerPo: '',
       authorizedName: '', approvalDate: new Date().toISOString().slice(0, 10),
-      signatureData: ''
+      signatureData: '', signatureTypedName: ''
     }
   };
 
@@ -219,6 +231,27 @@
     return start + qty - 1;
   }
 
+  /**
+   * Blank stays null rather than becoming 0: an unanswered dimension is not a
+   * zero-inch label, and the database column is nullable precisely so the
+   * difference survives.
+   */
+  function toDecimal(v) {
+    var n = parseFloat(String(v == null ? '' : v).trim());
+    return isFinite(n) ? n : null;
+  }
+
+  /**
+   * The printer works from this, and the customer signs off on it, so both
+   * screens have to read the same. One formatter, used by both.
+   */
+  function labelSizeText(d) {
+    var w = toDecimal(d.labelWidthIn);
+    var h = toDecimal(d.labelHeightIn);
+    if (w === null || h === null) return '';
+    return w.toFixed(2) + '" x ' + h.toFixed(2) + '"';
+  }
+
   function filledTextLines(d) {
     return d.textLines.map(function (l) { return String(l || '').trim(); })
       .filter(function (l) { return l.length > 0; });
@@ -253,6 +286,22 @@
     add('postalCode', 'Postal / ZIP Code *', null, null, row2);
     add('country', 'Country *', null, null, row2);
     card.appendChild(row2);
+
+    // Labels ship direct from the printer to this address, so the carrier
+    // needs a name and number at the far end. Optional, because plenty of
+    // orders go to the same person who placed them.
+    var row3 = el('div', { class: 'row2' });
+    add('attentionName', 'Receiving Contact', null, 'If different from above', row3);
+    add('shipToPhone', 'Delivery Phone', 'tel', 'For the courier', row3);
+    card.appendChild(row3);
+    card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:16px;' },
+      'Labels ship directly to the address above. A name and phone number help '
+      + 'the courier deliver on the first attempt.'));
+
+    add('customerPo', 'Your PO Number', null, 'If your company requires one');
+    card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:4px;' },
+      'Optional. If your purchasing team issues a PO number for this order, '
+      + 'adding it here means it appears on your invoice.'));
 
     card.appendChild(actionBar(null, 'Continue', function () {
       var ok = true;
@@ -433,16 +482,121 @@
     }
     renderColorField();
 
+    var sizeField = labelSizeField();
+    card.appendChild(sizeField.wrap);
+
     var row = el('div', { class: 'row2' });
     var qtyField = quantityField();
     row.appendChild(qtyField.wrap);
 
     var seqInput = textInput(d.startSeq, function (v) {
       d.startSeq = v; updateSeqPreview();
-    }, 'text', 'e.g. 0');
+    }, 'text', 'e.g. 1');
     var seqField = fieldWrap('Starting Sequence # *', seqInput);
     row.appendChild(seqField);
     card.appendChild(row);
+
+    // Asset tags are not always plain numbers — real orders have run
+    // VOL6001-VOL9000. The prefix is separate from the number so the end of
+    // the range is still arithmetic rather than string guesswork.
+    var prefixInput = textInput(d.seqPrefix, function (v) {
+      d.seqPrefix = v.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+      prefixInput.value = d.seqPrefix;
+      updateSeqPreview();
+    }, 'text', 'e.g. VOL');
+    prefixInput.setAttribute('maxlength', '12');
+    card.appendChild(fieldWrap('Sequence Prefix', prefixInput));
+    card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:16px;' },
+      'Optional. Leave blank for plain numbers. Enter VOL and a starting number '
+      + 'of 6001 to label them VOL6001 onwards.'));
+
+    /**
+     * Size drives the line description the printer works from, so it has to be
+     * exact. Two presets cover every order placed to date; "Another size" is
+     * there because a first-time requirement should not be a support call.
+     */
+    function labelSizeField() {
+      var wrap = el('div', {});
+      var errMsg = el('div', { class: 'err-msg', role: 'alert' },
+        'Please choose a label size');
+
+      var group = el('div', { class: 'choice-group' });
+      var customHost = el('div', {});
+
+      function paint() {
+        group.innerHTML = '';
+        customHost.innerHTML = '';
+
+        LABEL_SIZES.concat([{ value: 'other', label: 'Another size' }])
+          .forEach(function (opt) {
+            var input = el('input', {
+              type: 'radio',
+              name: 'labelSize',
+              value: opt.value,
+              id: 'size_' + opt.value
+            });
+            if (d.labelSizeChoice === opt.value) input.checked = true;
+            var choice = el('label', {
+              class: 'choice' + (d.labelSizeChoice === opt.value ? ' selected' : ''),
+              for: 'size_' + opt.value
+            }, [input, el('span', { class: 'clabel' }, opt.label)]);
+            input.addEventListener('change', function () {
+              d.labelSizeChoice = opt.value;
+              if (opt.value !== 'other') {
+                d.labelWidthIn = opt.w;
+                d.labelHeightIn = opt.h;
+              } else {
+                d.labelWidthIn = '';
+                d.labelHeightIn = '';
+              }
+              errMsg.style.display = 'none';
+              paint();
+            });
+            group.appendChild(choice);
+          });
+
+        if (d.labelSizeChoice === 'other') {
+          var dims = el('div', { class: 'row2' });
+          var wIn = textInput(d.labelWidthIn, function (v) { d.labelWidthIn = v; },
+            'text', 'Width, e.g. 2.00');
+          var hIn = textInput(d.labelHeightIn, function (v) { d.labelHeightIn = v; },
+            'text', 'Height, e.g. 1.00');
+          dims.appendChild(fieldWrap('Width (inches) *', wIn));
+          dims.appendChild(fieldWrap('Height (inches) *', hIn));
+          customHost.appendChild(dims);
+          customHost.appendChild(el('div', { class: 'hint' },
+            'A ToolHound representative will confirm this size is available '
+            + 'before the order goes to production.'));
+          wrap._custom = { wIn: wIn, hIn: hIn };
+        } else {
+          wrap._custom = null;
+        }
+      }
+
+      wrap.appendChild(el('label', { class: 'field-label' }, 'Label Size *'));
+      wrap.appendChild(group);
+      wrap.appendChild(customHost);
+      wrap.appendChild(errMsg);
+      paint();
+
+      return {
+        wrap: wrap,
+        errMsg: errMsg,
+        validate: function () {
+          if (!d.labelSizeChoice) { errMsg.style.display = 'block'; return false; }
+          if (d.labelSizeChoice !== 'other') return true;
+          var w = parseFloat(d.labelWidthIn);
+          var h = parseFloat(d.labelHeightIn);
+          var okDims = isFinite(w) && w > 0 && w <= 12 && isFinite(h) && h > 0 && h <= 12;
+          if (wrap._custom) {
+            markErr(wrap._custom.wIn, !(isFinite(w) && w > 0 && w <= 12), '0 to 12 inches');
+            markErr(wrap._custom.hIn, !(isFinite(h) && h > 0 && h <= 12), '0 to 12 inches');
+          }
+          errMsg.style.display = okDims ? 'none' : 'block';
+          return okDims;
+        }
+      };
+    }
 
     function quantityField() {
       var isOther = d.quantity && QUANTITY_OPTIONS.indexOf(toInt(d.quantity)) === -1;
@@ -500,11 +654,12 @@
     function updateSeqPreview() {
       var end = endingSequence(d);
       if (end === null) { seqPreview.textContent = ''; return; }
+      var pre = String(d.seqPrefix || '');
       seqPreview.innerHTML = '';
       seqPreview.appendChild(document.createTextNode('This order will print labels '));
-      seqPreview.appendChild(el('strong', {}, String(toInt(d.startSeq))));
+      seqPreview.appendChild(el('strong', {}, pre + String(toInt(d.startSeq))));
       seqPreview.appendChild(document.createTextNode(' through '));
-      seqPreview.appendChild(el('strong', {}, String(end)));
+      seqPreview.appendChild(el('strong', {}, pre + String(end)));
       seqPreview.appendChild(document.createTextNode('.'));
     }
     updateSeqPreview();
@@ -534,6 +689,8 @@
       var qtyTarget = qtyField.otherInput.style.display === 'none'
         ? qtyField.select : qtyField.otherInput;
       var qty = toInt(d.quantity);
+      if (!sizeField.validate()) ok = false;
+
       if (qty === null) { markErr(qtyTarget, true, 'Enter a quantity'); ok = false; }
       else if (qty < 1) { markErr(qtyTarget, true, 'Quantity must be at least 1'); ok = false; }
       else if (qty > MAX_QUANTITY) {
@@ -574,6 +731,9 @@
     b1.appendChild(reviewRow('Email', d.contactEmail));
     b1.appendChild(reviewRow('Address', [d.address, d.city,
       d.stateProvince + ' ' + d.postalCode, d.country].join(', ')));
+    if (d.attentionName) b1.appendChild(reviewRow('Receiving Contact', d.attentionName));
+    if (d.shipToPhone) b1.appendChild(reviewRow('Delivery Phone', d.shipToPhone));
+    if (d.customerPo) b1.appendChild(reviewRow('Your PO Number', d.customerPo));
     blocks.push(b1);
 
     var b2 = el('div', { class: 'review-block' });
@@ -584,11 +744,14 @@
       b2.appendChild(reviewRow('Custom Text', filledTextLines(d).join(' / ')));
     }
     b2.appendChild(reviewRow('Full Color', d.fullColor));
+    b2.appendChild(reviewRow('Label Size', labelSizeText(d)));
     b2.appendChild(reviewRow('Quantity', d.quantity));
-    b2.appendChild(reviewRow('Starting Sequence #', d.startSeq));
+    b2.appendChild(reviewRow('Starting Sequence #', (d.seqPrefix || '') + d.startSeq));
     var end = endingSequence(d);
     if (end !== null) {
-      b2.appendChild(reviewRow('Sequence Range', toInt(d.startSeq) + ' – ' + end));
+      var pre = d.seqPrefix || '';
+      b2.appendChild(reviewRow('Sequence Range',
+        pre + toInt(d.startSeq) + ' – ' + pre + end));
     }
     if (d.instructions) b2.appendChild(reviewRow('Special Instructions', d.instructions));
     blocks.push(b2);
@@ -621,87 +784,117 @@
    */
   function signaturePad(d) {
     var wrap = el('div', { class: 'field' });
-    wrap.appendChild(el('label', {}, 'Signature *'));
+    wrap.appendChild(el('label', { for: 'sigTyped' }, 'Signature *'));
+    wrap.appendChild(el('div', { class: 'hint', style: 'margin-top:0;margin-bottom:8px;' },
+      'Type your full name and it will be rendered as your signature below.'));
 
+    // Rendering the typed name to a canvas, rather than styling a text box,
+    // is what makes this storable: the database constrains signature_data to a
+    // PNG data URL, which is also why the dashboard can safely display it
+    // inline where it will not display an uploaded logo.
     var canvas = el('canvas', {
       class: 'sigpad',
       width: '600',
       height: '160',
-      'aria-label': 'Draw your signature here'
+      role: 'img',
+      'aria-label': 'Generated signature'
     });
     var ctx = canvas.getContext('2d');
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#1a1a1a';
 
-    var hasSignature = false;
-    var drawing = false;
+    var typed = '';
 
-    function pos(e) {
-      var rect = canvas.getBoundingClientRect();
-      return {
-        x: (e.clientX - rect.left) * (canvas.width / rect.width),
-        y: (e.clientY - rect.top) * (canvas.height / rect.height)
-      };
-    }
+    var input = el('input', {
+      type: 'text',
+      id: 'sigTyped',
+      maxlength: '120',
+      autocomplete: 'name',
+      placeholder: 'Type your full name',
+      'aria-label': 'Type your name to sign'
+    });
 
-    function start(e) {
-      e.preventDefault();
-      drawing = true;
-      hasSignature = true;
-      if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
-      var p = pos(e);
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!typed.trim()) return;
+
+      // Shrink to fit rather than letting a long name run off the canvas — the
+      // signature is a record of what was authorized, so it has to stay legible.
+      var size = 64;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#1a1a1a';
+      do {
+        ctx.font = '400 ' + size + "px 'Dancing Script', 'Segoe Script', cursive";
+        var w = ctx.measureText(typed).width;
+        if (w <= canvas.width - 60) break;
+        size -= 2;
+      } while (size > 20);
+
+      ctx.fillText(typed, 30, canvas.height / 2 + size / 3);
+
+      // A ruled line under the name, so a printed copy reads as a signature
+      // block rather than a caption.
+      ctx.strokeStyle = '#C9BFB9';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      errMsg.style.display = 'none';
-      canvas.classList.remove('err');
-    }
-    function move(e) {
-      if (!drawing) return;
-      e.preventDefault();
-      var p = pos(e);
-      ctx.lineTo(p.x, p.y);
+      ctx.moveTo(24, canvas.height - 34);
+      ctx.lineTo(canvas.width - 24, canvas.height - 34);
       ctx.stroke();
     }
-    function stop() { drawing = false; }
 
-    canvas.addEventListener('pointerdown', start);
-    canvas.addEventListener('pointermove', move);
-    canvas.addEventListener('pointerup', stop);
-    canvas.addEventListener('pointerleave', stop);
-    canvas.addEventListener('pointercancel', stop);
-
-    // Restore a signature already drawn if the customer stepped back to this
-    // page and returned, rather than discarding it.
-    if (d.signatureData) {
-      hasSignature = true;
-      var img = new Image();
-      img.onload = function () { ctx.drawImage(img, 0, 0); };
-      img.src = d.signatureData;
+    function setTyped(v) {
+      typed = v;
+      render();
+      if (typed.trim()) {
+        errMsg.style.display = 'none';
+        canvas.classList.remove('err');
+      }
     }
 
+    input.addEventListener('input', function (e) { setTyped(e.target.value); });
+
+    // The script face arrives asynchronously. Without waiting, the first
+    // keystrokes render in the fallback and the customer watches their
+    // signature change font under them.
+    if (document.fonts && document.fonts.load) {
+      Promise.resolve(document.fonts.load("64px 'Dancing Script'"))
+        .then(function () { render(); })
+        .catch(function () { /* fallback cursive is fine */ });
+    }
+
+    wrap.appendChild(input);
     wrap.appendChild(el('div', { class: 'sigpad-wrap' }, [canvas]));
 
     var clearBtn = el('button', {
       type: 'button',
       class: 'ghost sigpad-clear',
       onclick: function () {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        hasSignature = false;
+        input.value = '';
+        setTyped('');
         d.signatureData = '';
+        input.focus();
       }
     }, 'Clear signature');
     wrap.appendChild(clearBtn);
 
     var errMsg = el('div', { class: 'err-msg', role: 'alert' },
-      'Please sign to authorize this order');
+      'Please type your name to authorize this order');
     wrap.appendChild(errMsg);
+
+    // Returning here rather than at the top of the step means stepping away
+    // and back keeps the signature instead of silently dropping it.
+    if (d.signatureData && d.signatureTypedName) {
+      input.value = d.signatureTypedName;
+      setTyped(d.signatureTypedName);
+    }
 
     return {
       wrap: wrap,
       canvas: canvas,
-      isSigned: function () { return hasSignature; },
-      commit: function () { d.signatureData = canvas.toDataURL('image/png'); },
+      input: input,
+      isSigned: function () { return !!typed.trim(); },
+      commit: function () {
+        d.signatureTypedName = typed.trim();
+        d.signatureData = canvas.toDataURL('image/png');
+      },
       errMsg: errMsg
     };
   }
@@ -811,6 +1004,12 @@
       full_color: d.fullColor,
       quantity: toInt(d.quantity),
       start_seq: toInt(d.startSeq),
+      seq_prefix: d.seqPrefix.trim() ? d.seqPrefix.trim() : null,
+      label_width_in: toDecimal(d.labelWidthIn),
+      label_height_in: toDecimal(d.labelHeightIn),
+      ship_to_phone: d.shipToPhone.trim() ? d.shipToPhone.trim() : null,
+      attention_name: d.attentionName.trim() ? d.attentionName.trim() : null,
+      customer_po: d.customerPo.trim() ? d.customerPo.trim() : null,
       instructions: d.instructions.trim() ? d.instructions.trim() : null,
       authorized_name: d.authorizedName.trim(),
       approval_date: d.approvalDate,

@@ -21,35 +21,31 @@ A four step wizard, submitting one row to Supabase:
    not apply to text-only labels), quantity (500-unit increments, or an exact
    custom amount), starting sequence number, special instructions
 3. **Review** — everything on one screen, including the computed sequence range
-4. **Authorization** — named approval, a drawn signature, and an explicit
+4. **Authorization** — named approval, a typed signature, and an explicit
    agreement to the nonreturnable terms
+
+The signature is typed, not drawn: the customer enters their name and the form
+renders it to a canvas in a script face. That is deliberate — a name typed on a
+phone is legible where a finger-drawn scrawl usually is not, and rendering it
+to a PNG is what lets the dashboard show it inline, since the database
+constrains that column to a PNG and a PNG cannot carry script.
 
 The confirmation screen shows the order reference, ToolHound's contact
 information, and offers **Print / save a copy**, which produces a one-page
 authorization record.
 
-The domain restriction is enforced twice: `admin.js` hints each provider's
-account picker toward the right domain and re-checks the signed-in email
-before showing any data, but the real boundary is
-`supabase/migrations/0005_oauth_domain_restriction.sql` — a trigger on
-`auth.users` that rejects account creation outright for a Google or
-Microsoft sign-in outside the approved domain. A client-side check alone
-would not be a boundary, since the Auth API can be called directly.
+Access is limited to Beacon addresses, and the boundary is
+`public.is_label_order_staff()` in
+`supabase/migrations/0006_restrict_staff_reads.sql` — an RLS predicate that
+reads the email claim off the verified JWT on every request. `admin.js` also
+checks the domain, but only to decide what to render; a client-side check alone
+would not be a boundary, since the REST API can be called directly.
 
-**One manual step is required before Google/Microsoft sign-in works**: the
-OAuth providers themselves are enabled in the Supabase dashboard, not from
-this repo. In the **ToolHound Label Orders** project, go to
-**Authentication → Sign In / Providers**, enable **Google** and **Azure**,
-and give each the Client ID/Secret from a Google Cloud OAuth app and a
-Microsoft Entra ID (Azure AD) app registration respectively (reuse the ones
-already set up for the ToolHound Dashboard if that's simpler than creating
-new ones — a Google/Azure app can serve multiple redirect URIs). Add this
-project's callback URL — shown on that same settings page — as an
-authorized redirect URI in each app.
-
-Submitting also emails `sales@toolhound.com` and puts the order on the internal
-dashboard at `/admin`, where staff track it through PO sent, production
-confirmed, and shipped. Customers never see that page — see **Access**.
+`0005_oauth_domain_restriction.sql` additionally rejects off-domain Google and
+Microsoft sign-ups at account creation. That is a useful second layer, but note
+what it does not cover: it only restricts those two providers, so it says
+nothing about the emailed sign-in link. The `0006` policy is what covers every
+path. See **Access** below for setup.
 
 ## Layout
 
@@ -150,12 +146,12 @@ in response to a status change, and the `authenticated` role holds a
 column-level UPDATE grant on `status` and `internal_notes` only. So the
 dashboard sends a status and nothing else, a timestamp cannot be backdated
 through the API, and a signed-in user cannot rewrite the customer's own order
-details or their drawn signature.
+details or their signature.
 
 Moving an order backwards clears the stamps it has given up, so the timeline
 never claims a milestone the order has not reached.
 
-The order drawer shows the customer's drawn signature inline. That is safe
+The order drawer shows the customer's signature inline. That is safe
 where the uploaded artwork is not, and the difference is the database
 constraint: `signature_data` is bounded to a `data:image/png;base64,` payload,
 and a PNG cannot carry script.
@@ -165,6 +161,33 @@ reproduces best at label size, and an SVG can carry script; rendering one
 inline on a page holding a live staff session would be stored XSS with the
 session sitting right there. The dashboard also excludes `logo_file_data` from
 the list query, because it is up to ~6MB of base64 per row.
+
+## What the form asks for, and why
+
+Every question exists because something downstream needs the answer. The
+vendor PO is built from these, so a field that nobody reads is a field that
+should not be on a customer-facing form:
+
+| Question | Who needs it |
+| --- | --- |
+| Company, contact, email | Ship-to and NetSuite Customer/Job on the PO |
+| Shipping address | Drop-ship destination — labels go direct from the printer |
+| Receiving contact, delivery phone | The courier. Optional; often the same person who ordered |
+| Your PO number | The PO's Memo to Supplier. Optional — not every customer issues one |
+| Logo / text choice, full colour | The line description the printer works from |
+| Label size | Same. Only `1.50" x 0.75"` and `1.25" x 0.50"` have ever been ordered, so those are the presets |
+| Quantity, starting sequence, prefix | Quantity and the printed range. The prefix covers alphanumeric tags like `VOL6001` |
+| Special instructions | Free text for anything the fields do not cover |
+| Authorized name, date, signature | The nonreturnable authorization |
+
+Two things are deliberately **not** asked. Metalcraft's cost per label is
+quoted per order and belongs in the vendor thread, not in front of a customer.
+And label stock is fixed at `.002" Premium Poly Pro`, so asking would be a
+choice the customer cannot meaningfully make.
+
+Label text is capped at **three lines of ten characters**, in the form and
+again as a database constraint. That is a physical limit of the label, not an
+arbitrary one — a customer whose text will not fit needs a logo instead.
 
 ## Access
 
@@ -295,7 +318,13 @@ a future one-way mirror job.
 - `0006_restrict_staff_reads.sql` — replaces 0004's `using (true)` with a
   domain-checked predicate *(applied)*
 - `0007_order_status_workflow.sql` — the status pipeline, the stage timestamp
-  triggers, and the staff UPDATE policy *(apply this one)*
+  triggers, and the staff UPDATE policy *(applied)*
+- `0008_customer_supplied_po_fields.sql` — label size, sequence prefix,
+  customer PO, delivery phone and receiving contact *(apply this one)*
+
+**Apply 0008 before deploying the frontend.** The order form submits those
+columns; if the deploy lands first, every submission fails on an unknown
+column. The dashboard degrades gracefully either way.
 
 **Why 0006 exists.** 0004 granted staff SELECT with `using (true)`, relying on
 "there is no public sign-up" to make `authenticated` mean "staff". 0005's
@@ -363,7 +392,7 @@ Client-side checks are the user experience. The constraints are the guarantee.
   when each stage was reached, but not who moved it. Adding a
   `label_order_events` table written by the same trigger would give you that,
   and is worth doing before more than a couple of people use the dashboard.
-- **Artwork and signatures are stored inline.** Logo files and the drawn
+- **Artwork and signatures are stored inline.** Logo files and the rendered
   signature are base64 encoded into `logo_file_data` / `signature_data`
   rather than object storage. Fine at current volume; move to Supabase
   Storage if orders grow or files get larger.

@@ -414,3 +414,17 @@ button:focus-visible{
     padding:12px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Typed signature
+   The name is typed and rendered to a canvas, so the canvas is display-only.
+   --------------------------------------------------------------------------- */
+.field #sigTyped{
+  font-family:'Dancing Script','Segoe Script',cursive;
+  font-size:22px;
+  letter-spacing:.01em;
+}
+.sigpad{
+  cursor:default;
+  touch-action:auto;
+}

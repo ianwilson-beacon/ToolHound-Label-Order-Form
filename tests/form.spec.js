@@ -78,24 +78,17 @@ async function fillStep2(page, { quantity = '500', startSeq = '1000' } = {}) {
   await page.getByRole('radio', { name: 'Yes', exact: true }).check();
   await fillQuantity(page, quantity);
   await page.getByLabel('Starting Sequence # *').fill(startSeq);
+  await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
 }
 
-/** Draws a short stroke across the signature pad — enough to mark it signed. */
-async function signCanvas(page) {
-  const canvas = page.locator('.sigpad');
-  // The pad often sits below the fold at the default viewport height, and
-  // raw mouse coordinates don't auto-scroll the way locator actions do.
-  await canvas.scrollIntoViewIfNeeded();
-  const box = await canvas.boundingBox();
-  await page.mouse.move(box.x + 20, box.y + 20);
-  await page.mouse.down();
-  await page.mouse.move(box.x + 120, box.y + 90, { steps: 5 });
-  await page.mouse.up();
+/** Types a name into the signature field, which renders it to the canvas. */
+async function signTyped(page, name = 'Dana Reyes') {
+  await page.getByLabel('Type your name to sign').fill(name);
 }
 
 async function fillStep4(page, name = 'Dana Reyes') {
   await page.getByLabel('Authorized Name *').fill(name);
-  await signCanvas(page);
+  await signTyped(page, name);
   await page.getByLabel('I have read and agree').check();
 }
 
@@ -193,6 +186,7 @@ test.describe('step 2 validation', () => {
     async ({ page }) => {
       await page.getByRole('radio', { name: 'Custom Logo' }).check();
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
+      await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
       await fillQuantity(page, '100');
       await page.getByLabel('Starting Sequence # *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
@@ -284,6 +278,7 @@ test.describe('step 2 validation', () => {
       await expect(page.getByText('Selected: acme-mark.png')).toBeVisible();
 
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
+      await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
       await fillQuantity(page, '100');
       await page.getByLabel('Starting Sequence # *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
@@ -306,6 +301,7 @@ test.describe('custom text orders', () => {
     await page.getByRole('radio', { name: 'Custom Text' }).check();
     await page.getByLabel('Text line 1').fill('ACME');
     await page.getByLabel('Text line 3').fill('YARD 4');
+    await page.getByRole('radio', { name: '1.25" x 0.50"' }).check();
     await fillQuantity(page, '75');
     await page.getByLabel('Starting Sequence # *').fill('0');
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -464,5 +460,154 @@ test.describe('order references', () => {
   test('use an unambiguous alphabet', async ({ page }) => {
     const ref = await page.evaluate(() => window.__TOOLHOUND_FORM__.makeOrderRef());
     expect(ref).toMatch(/^THL-[0-9A-Z]+-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/);
+  });
+});
+
+test.describe('fields the vendor PO needs', () => {
+  test('carries label size, sequence prefix, phone, receiving contact and customer PO',
+    async ({ page }) => {
+      await fillStep1(page);
+      await page.getByLabel('Receiving Contact').fill('Mike Betts');
+      await page.getByLabel('Delivery Phone').fill('204-555-0117');
+      await page.getByLabel('Your PO Number').fill('4500620115');
+      await page.getByRole('button', { name: 'Continue' }).click();
+
+      await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
+      await page.getByRole('radio', { name: 'No', exact: true }).check();
+      await page.getByRole('radio', { name: '1.25" x 0.50"' }).check();
+      await fillQuantity(page, '3000');
+      await page.getByLabel('Starting Sequence # *').fill('6001');
+      await page.getByLabel('Sequence Prefix').fill('vol');
+
+      // The prefix is what gets printed on the tag, so it is upper-cased as
+      // typed rather than silently at submit time.
+      await expect(page.getByLabel('Sequence Prefix')).toHaveValue('VOL');
+      // Scoped to the preview: the field's own hint text also names VOL6001.
+      await expect(page.locator('.seq-preview')).toContainText('VOL6001');
+      await expect(page.locator('.seq-preview')).toContainText('VOL9000');
+
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(page.getByText('1.25" x 0.50"').last()).toBeVisible();
+      await expect(page.getByText('VOL6001 – VOL9000')).toBeVisible();
+
+      await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+      await fillStep4(page);
+      await page.getByRole('button', { name: 'Submit Order' }).click();
+
+      const row = (await page.evaluate(() => window.__INSERTED__))[0];
+      expect(row.label_width_in).toBe(1.25);
+      expect(row.label_height_in).toBe(0.5);
+      expect(row.seq_prefix).toBe('VOL');
+      expect(row.start_seq).toBe(6001);
+      expect(row.ship_to_phone).toBe('204-555-0117');
+      expect(row.attention_name).toBe('Mike Betts');
+      expect(row.customer_po).toBe('4500620115');
+    });
+
+  test('the optional fields stay null when left blank', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+    await fillStep4(page);
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    const row = (await page.evaluate(() => window.__INSERTED__))[0];
+    // Null rather than empty string: the columns are nullable so "not asked"
+    // stays distinguishable from "answered with nothing".
+    expect(row.seq_prefix).toBeNull();
+    expect(row.ship_to_phone).toBeNull();
+    expect(row.attention_name).toBeNull();
+    expect(row.customer_po).toBeNull();
+  });
+
+  test('will not continue without a label size', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
+    await page.getByRole('radio', { name: 'Yes', exact: true }).check();
+    await fillQuantity(page, '500');
+    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await expect(page.getByText('Please choose a label size')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Label Specifications' })).toBeVisible();
+  });
+
+  test('a custom size must be a plausible number of inches', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
+    await page.getByRole('radio', { name: 'Yes', exact: true }).check();
+    await page.getByRole('radio', { name: 'Another size' }).check();
+    await page.getByLabel('Width (inches) *').fill('40');
+    await page.getByLabel('Height (inches) *').fill('1');
+    await fillQuantity(page, '500');
+    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await expect(page.getByText('0 to 12 inches').first()).toBeVisible();
+
+    await page.getByLabel('Width (inches) *').fill('2');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByRole('heading', { name: 'Review Your Order' })).toBeVisible();
+    await expect(page.getByText('2.00" x 1.00"')).toBeVisible();
+  });
+});
+
+test.describe('typed signature', () => {
+  test('renders the typed name as a PNG and submits it', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Authorized Name *').fill('Dana Reyes');
+    await page.getByLabel('Type your name to sign').fill('Dana Reyes');
+    await page.getByLabel('I have read and agree').check();
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    const row = (await page.evaluate(() => window.__INSERTED__))[0];
+    // The database constrains this column to a PNG data URL, which is also
+    // what lets the dashboard show it inline.
+    expect(row.signature_data).toMatch(/^data:image\/png;base64,/);
+    // A blank canvas encodes to a short string; a rendered name does not.
+    expect(row.signature_data.length).toBeGreaterThan(1000);
+  });
+
+  test('will not submit without a typed signature', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Authorized Name *').fill('Dana Reyes');
+    await page.getByLabel('I have read and agree').check();
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    await expect(page.getByText('Please type your name to authorize this order')).toBeVisible();
+    expect(await page.evaluate(() => window.__INSERTED__)).toHaveLength(0);
+  });
+
+  test('clearing the signature blocks submission again', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Authorized Name *').fill('Dana Reyes');
+    await page.getByLabel('Type your name to sign').fill('Dana Reyes');
+    await page.getByRole('button', { name: 'Clear signature' }).click();
+    await expect(page.getByLabel('Type your name to sign')).toHaveValue('');
+
+    await page.getByLabel('I have read and agree').check();
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+    await expect(page.getByText('Please type your name to authorize this order')).toBeVisible();
   });
 });
