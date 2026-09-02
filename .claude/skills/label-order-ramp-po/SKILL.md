@@ -132,6 +132,12 @@ scrolling past:
   full-colour rate.
 - **Sequence starting at 0.** Most runs start at 1. If a customer submitted 0,
   confirm they meant it before ordering.
+- **NetSuite Customer/Job.** It is whatever the customer typed into Company,
+  and it has to match a NetSuite record. Real orders have arrived under the
+  wrong entity and under one that did not exist in NetSuite at all — a PCL
+  Nisku order filed as PCL Arizona, where Nisku was not yet a customer. Neither
+  is detectable from the order, so the script names it once per PO for you to
+  confirm.
 - **Different customers in one batch.** A Ramp PO carries one vendor and one
   ship-to, so orders for different customers need separate POs.
 

@@ -323,6 +323,7 @@ def build(rows, opts):
 
     total = 0.0
     total_known = True
+    seen_customer_jobs = set()
 
     for i, row in enumerate(rows, start=1):
         ref = row.get("order_ref") or f"row {i}"
@@ -360,10 +361,22 @@ def build(rows, opts):
         out.append(f"Line {i} NetSuite Department: {NETSUITE_DEPARTMENT}")
         out.append(f"Line {i} NetSuite Classification: {NETSUITE_CLASSIFICATION}")
         out.append(f"Line {i} NetSuite Division: (blank)")
-        out.append(
-            f"Line {i} NetSuite Customer/Job: "
-            f"{(row.get('company_name') or '').strip() or NEEDS_INPUT}"
-        )
+        customer_job = (row.get("company_name") or "").strip() or NEEDS_INPUT
+        out.append(f"Line {i} NetSuite Customer/Job: {customer_job}")
+        if customer_job not in seen_customer_jobs:
+            seen_customer_jobs.add(customer_job)
+            # Customer/Job is whatever the customer typed into Company, and it
+            # has to match a NetSuite record. Real orders have arrived under the
+            # wrong entity and under one that does not exist in NetSuite at all
+            # (a PCL Nisku order filed as PCL Arizona, where Nisku was not a
+            # customer yet). Neither is detectable from the order, so it is
+            # named once per PO rather than assumed correct.
+            flags.append(
+                f"NetSuite Customer/Job reads \"{customer_job}\", straight from the "
+                "Company field. Confirm that is the right entity and that it "
+                "exists in NetSuite — a site ordering under its parent's name, or "
+                "a new site not set up yet, both miscode the PO silently."
+            )
         out.append(f"Line {i} Billable?: {BILLABLE}")
 
     if total_known:

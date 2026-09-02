@@ -78,6 +78,19 @@ for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 
   fi
 done
 
+# Customer/Job is named once per PO, not once per line -- two line items for
+# one customer should not produce the same warning twice.
+two_line=$(python3 ../scripts/build_ramp_po.py --file shaw_rows.json \
+             --size 1.50x0.75 --rate 0.83124 --rate 0.13635 \
+             --logo-name ToolHound --logo-name Shaw --quote Q --customer-po P)
+n=$(grep -c "NetSuite Customer/Job reads" <<<"$two_line")
+if [ "$n" = "1" ]; then
+  echo "PASS  Customer/Job flagged once per PO, not once per line"
+else
+  echo "FAIL  Customer/Job flagged $n times across 2 lines, expected 1"
+  fail=1
+fi
+
 # Vendor and currency are fixed for label orders.
 for want in "Vendor: Metalcraft USD" "Currency: USD" "Entity: ToolHound Inc."; do
   grep -qF "$want" <<<"$bare" && echo "PASS  fixed value: $want" \
