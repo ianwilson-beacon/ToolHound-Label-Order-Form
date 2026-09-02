@@ -24,7 +24,21 @@ alter table public.label_orders
   add column if not exists shipped_at              timestamptz,
   add column if not exists cancelled_at            timestamptz,
   add column if not exists internal_notes          text,
-  add column if not exists updated_at              timestamptz not null default now();
+  add column if not exists updated_at              timestamptz;
+
+-- updated_at arrives nullable, is backfilled, and only then becomes NOT NULL.
+-- Adding it as `not null default now()` in one step would stamp every order
+-- that already existed as edited at migration time, which is a claim about
+-- those orders that is not true — and the column exists precisely to answer
+-- "when did this last change". Written this way the backfill is also
+-- re-runnable: a second pass finds no NULLs and touches nothing.
+update public.label_orders
+   set updated_at = submitted_at
+ where updated_at is null;
+
+alter table public.label_orders
+  alter column updated_at set default now(),
+  alter column updated_at set not null;
 
 comment on column public.label_orders.status is
   'Workflow stage: received -> po_sent -> production_confirmed -> shipped, plus cancelled. Maintained by staff through the internal dashboard.';
