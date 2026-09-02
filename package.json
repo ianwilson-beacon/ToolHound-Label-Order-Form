@@ -2,11 +2,13 @@
   "name": "toolhound-label-order-form",
   "version": "1.0.0",
   "private": true,
-  "description": "Public form for authorizing custom ToolHound label orders.",
+  "description": "Public forms for ToolHound custom label orders and hardware drop-ship orders.",
   "scripts": {
     "dev": "python3 -m http.server 4173 --directory public",
     "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "test:db": "bash scripts/test-db.sh",
+    "test:all": "npm test && npm run test:db"
   },
   "devDependencies": {
     "@playwright/test": "^1.47.0"

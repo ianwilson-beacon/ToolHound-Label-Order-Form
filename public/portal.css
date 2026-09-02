@@ -1,0 +1,298 @@
+/*
+ * Hardware portal styles — the customer storefront (hardware.html) and the
+ * staff pricing screen (admin.html). Loaded after styles.css, which owns the
+ * colour tokens, typography, buttons and form fields these build on.
+ */
+
+
+  /* styles.css only styles inputs inside .field. The portal also has bare
+     inputs in catalog cards and table cells, so give them the same skin. */
+  input[type=text],input[type=email],input[type=tel],input[type=date],
+  input[type=number],input[type=password],select,textarea{
+    padding:11px 12px;
+    border:1.5px solid var(--line);
+    border-radius:9px;
+    font-family:'Inter',sans-serif;
+    font-size:14.5px;
+    color:var(--ink);
+    background:#fff;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus,select:focus,textarea:focus{
+    outline:none;
+    border-color:var(--red);
+    box-shadow:0 0 0 3px rgba(207,56,44,.15);
+  }
+  input.err,select.err,textarea.err{border-color:#C0392B;}
+  .field input[type=text],.field input[type=email],.field input[type=tel],
+  .field input[type=date],.field input[type=password],
+  .field textarea,.field select{width:100%;}
+
+  /* Wider than the label form: a catalog needs room for a grid plus a cart.
+     No negative top margin either — the label form pulls its single card up
+     over the hero, but a two-column layout under a progress bar just looks
+     like it has come unstuck. */
+  .wrap-wide{
+    max-width:1320px;
+    margin:26px auto 60px;
+    padding:0 16px;
+  }
+  .panel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:22px 22px 24px;
+    box-shadow:0 10px 30px rgba(32,27,26,.05);
+  }
+  .panel + .panel{margin-top:18px;}
+  .panel h2{
+    font-size:19px;
+    margin:0 0 4px;
+  }
+  .panel-note{
+    color:var(--ink-soft);
+    font-size:13.5px;
+    line-height:1.5;
+    margin:0 0 18px;
+  }
+
+  /* Storefront layout: catalog on the left, order summary alongside. */
+  .shop{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 320px;
+    gap:18px;
+    align-items:start;
+  }
+  @media (max-width:900px){
+    .shop{grid-template-columns:minmax(0,1fr);}
+    .cart-panel{position:static !important;}
+  }
+
+  .cat-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:12px;
+    margin:26px 0 12px;
+  }
+  .cat-head:first-child{margin-top:0;}
+  .cat-head h3{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:.1em;
+    color:var(--red);
+    margin:0;
+  }
+  .cat-count{color:var(--ink-soft);font-size:12.5px;}
+
+  .prod-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+    gap:14px;
+  }
+  .prod{
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:14px;
+    background:var(--paper);
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .prod-img{
+    width:100%;
+    height:120px;
+    object-fit:contain;
+    background:var(--cream);
+    border-radius:8px;
+  }
+  .prod-img-empty{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--line);
+    font-size:26px;
+    font-weight:800;
+  }
+  .prod h4{
+    margin:0;
+    font-size:15px;
+    font-weight:700;
+    line-height:1.3;
+  }
+  .prod-sku{
+    font-size:11.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+  }
+  .prod-desc{
+    font-size:13px;
+    line-height:1.5;
+    color:var(--ink-soft);
+    margin:0;
+    flex:1;
+  }
+  .prod-price{
+    font-size:20px;
+    font-weight:800;
+    letter-spacing:-.01em;
+  }
+  .prod-price small{
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--ink-soft);
+    letter-spacing:.04em;
+  }
+  .prod-add{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .prod-add input{margin:0;width:74px;text-align:center;}
+  .prod-add button{flex:1;}
+
+  .badge{
+    display:inline-block;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    padding:3px 8px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    color:var(--ink-soft);
+    background:var(--cream);
+    white-space:nowrap;
+  }
+  .badge.ok{color:var(--ok);border-color:rgba(46,125,79,.3);background:rgba(46,125,79,.08);}
+  .badge.warn{color:#8A5A00;border-color:rgba(138,90,0,.3);background:rgba(138,90,0,.08);}
+  .badge.bad{color:var(--red-dark);border-color:rgba(173,35,35,.3);background:rgba(173,35,35,.07);}
+
+  /* Order summary */
+  .cart-panel{position:sticky;top:16px;}
+  .cart-lines{list-style:none;margin:0;padding:0;}
+  .cart-lines li{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px 10px;
+    padding:10px 0;
+    border-bottom:1px solid var(--line);
+    font-size:13.5px;
+  }
+  .cart-lines .cart-name{font-weight:600;}
+  .cart-lines .cart-meta{
+    grid-column:1 / -1;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:var(--ink-soft);
+    font-size:12.5px;
+  }
+  .cart-lines .cart-meta input{margin:0;width:62px;padding:6px 8px;text-align:center;font-size:13px;}
+  .cart-empty{color:var(--ink-soft);font-size:13.5px;line-height:1.5;}
+  .cart-total{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin:14px 0 4px;
+    font-weight:800;
+    font-size:17px;
+  }
+  .cart-fine{color:var(--ink-soft);font-size:12px;line-height:1.5;margin:6px 0 14px;}
+  .linkbtn{
+    background:none;
+    border:0;
+    padding:0;
+    color:var(--red-dark);
+    font:inherit;
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    text-decoration:underline;
+  }
+
+  /* Tables — staff screens and the order review */
+  .tbl-scroll{overflow-x:auto;}
+  table.grid{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13.5px;
+  }
+  table.grid th,table.grid td{
+    text-align:left;
+    padding:9px 8px;
+    border-bottom:1px solid var(--line);
+    vertical-align:middle;
+    white-space:nowrap;
+  }
+  table.grid th{
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--ink-soft);
+    font-weight:700;
+  }
+  table.grid td.wrap{white-space:normal;min-width:200px;}
+  table.grid td.num,table.grid th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  table.grid tbody tr:hover{background:var(--cream);}
+  table.grid input,table.grid select{margin:0;padding:6px 8px;font-size:13px;}
+  table.grid input.cell{width:82px;text-align:right;}
+  .delta-up{color:var(--ok);font-weight:700;}
+  .delta-down{color:var(--red-dark);font-weight:700;}
+
+  .toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    margin-bottom:14px;
+  }
+  .toolbar .spacer{flex:1;}
+  .toolbar input,.toolbar select{margin:0;}
+  button.small{padding:8px 12px;font-size:13px;}
+
+  .tabs{
+    display:flex;
+    gap:4px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:18px;
+    flex-wrap:wrap;
+  }
+  .tabs button{
+    background:none;
+    border:0;
+    border-bottom:2px solid transparent;
+    padding:10px 14px;
+    font:inherit;
+    font-weight:600;
+    font-size:14px;
+    color:var(--ink-soft);
+    cursor:pointer;
+    border-radius:0;
+  }
+  .tabs button.active{color:var(--red);border-bottom-color:var(--red);}
+
+  .notice{
+    border:1px solid var(--line);
+    background:var(--cream);
+    border-radius:10px;
+    padding:12px 14px;
+    font-size:13.5px;
+    line-height:1.55;
+    color:var(--ink-soft);
+    margin-bottom:16px;
+  }
+  .notice strong{color:var(--ink);}
+  .notice.good{border-color:rgba(46,125,79,.3);background:rgba(46,125,79,.07);}
+  .notice.bad{border-color:rgba(215,47,47,.3);background:rgba(215,47,47,.06);color:var(--red-deep);}
+
+  .login{max-width:380px;margin:0 auto;}
+  .muted{color:var(--ink-soft);font-size:13px;}
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  .rowflex{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+
+  @media print{
+    .shop{display:block;}
+    .cart-panel,.tabs,.toolbar{display:none !important;}
+  }

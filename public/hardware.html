@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToolHound Hardware Order Portal</title>
+<meta name="description" content="Order barcode scanners, mobile computers, label printers and RFID hardware from ToolHound.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="toolhound-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="portal.css">
+</head>
+<body>
+
+<header class="topbar">
+  <img class="logo-img" src="toolhound-logo.png" alt="ToolHound">
+  <div class="topbar-right" id="supportPhone"></div>
+</header>
+
+<div class="hero">
+  <span class="eyebrow">Hardware</span>
+  <h1>Hardware Order Portal</h1>
+  <p>Scanners, mobile computers, label printers and RFID readers, supplied by
+  ToolHound and shipped direct from our distributors. Prices shown are current
+  and include our standard configuration support. Freight, duties and taxes are
+  billed on the final invoice.</p>
+</div>
+
+<main class="wrap-wide">
+  <div id="app">
+    <noscript>
+      <div class="panel">
+        <p>This portal needs JavaScript enabled. Please enable JavaScript, or
+        contact ToolHound directly to place your hardware order.</p>
+      </div>
+    </noscript>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+  // Keep the phone number in one place: config.js.
+  (function () {
+    var elPhone = document.getElementById('supportPhone');
+    if (elPhone && window.TOOLHOUND_CONFIG) {
+      elPhone.textContent = window.TOOLHOUND_CONFIG.supportPhone || '';
+    }
+  })();
+</script>
+<script src="ui.js"></script>
+<script src="hardware.js"></script>
+
+</body>
+</html>

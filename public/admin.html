@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToolHound Hardware — Staff Console</title>
+<meta name="description" content="Staff pricing and order console for ToolHound hardware.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="toolhound-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="portal.css">
+</head>
+<body>
+
+<header class="topbar">
+  <img class="logo-img" src="toolhound-logo.png" alt="ToolHound">
+  <div class="topbar-right" id="whoami">Staff Console</div>
+</header>
+
+<main class="wrap-wide" style="margin-top:24px;">
+  <div id="app">
+    <noscript>
+      <div class="panel"><p>This console needs JavaScript enabled.</p></div>
+    </noscript>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="ui.js"></script>
+<script src="admin.js"></script>
+
+</body>
+</html>

@@ -16,6 +16,14 @@ window.TOOLHOUND_CONFIG = {
   // Shown in the header and on the printed authorization record.
   supportPhone: '1 (800) 387-8665',
 
+  // Hardware order portal (hardware.html). Prices, currency and availability
+  // all come from the database — the storefront has no pricing logic of its
+  // own — so there is little to configure here beyond the fallback currency
+  // used before the catalog has loaded.
+  hardware: {
+    currency: 'CAD'
+  },
+
   // Largest artwork file a customer may attach, in megabytes. The database
   // caps the encoded payload at 6,000,000 characters, which is roughly 4.2MB
   // of binary — keep this at or below that.
