@@ -1,0 +1,8 @@
+.admin-wrap{max-width:1000px;margin:32px auto 60px;padding:0 20px;}
+.admin-login{max-width:380px;margin:60px auto;}
+.admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.table-scroll{overflow-x:auto;}
+.orders-table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;}
+.orders-table th,
+.orders-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;}
+.orders-table th{color:var(--ink-soft);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;}

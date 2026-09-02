@@ -17,13 +17,27 @@ A four step wizard, submitting one row to Supabase:
 
 1. **Customer & shipping** — company, contact, delivery address
 2. **Label specifications** — custom logo / custom text / ToolHound logo,
-   full-colour choice, quantity, starting sequence number, special instructions
+   full-colour choice (logo orders only — it carries a surcharge, so it does
+   not apply to text-only labels), quantity (500-unit increments, or an exact
+   custom amount), starting sequence number, special instructions
 3. **Review** — everything on one screen, including the computed sequence range
-4. **Authorization** — named approval plus an explicit agreement to the
-   nonreturnable terms
+4. **Authorization** — named approval, a drawn signature, and an explicit
+   agreement to the nonreturnable terms
 
-The confirmation screen shows the order reference and offers **Print / save a
-copy**, which produces a one-page authorization record.
+The confirmation screen shows the order reference, ToolHound's contact
+information, and offers **Print / save a copy**, which produces a one-page
+authorization record.
+
+## Internal orders view
+
+`admin.html` is a password-protected page for staff to browse submitted
+orders — no service-role key involved. It signs in with Supabase Auth and
+relies on the `authenticated` role's SELECT policy on `label_orders` (see
+`supabase/migrations/0004_staff_read_access.sql`). There is no public
+sign-up: create staff logins in the Supabase dashboard under
+**Authentication → Users → Add user**. The page is `noindex` and unlinked
+from the public form, but it is still reachable by anyone who has the URL —
+the login screen is what protects it, not obscurity.
 
 ## Layout
 
@@ -32,7 +46,10 @@ public/            Everything that gets deployed
   index.html       Markup shell
   app.js           Wizard logic, validation, submission
   styles.css       Styles, including the print stylesheet
-  config.js        Supabase URL + publishable key, support phone
+  config.js        Supabase URL + publishable key, support phone, contact info
+  admin.html       Internal orders view (staff sign-in required)
+  admin.js         Admin auth + order listing
+  admin.css        Admin page styles
   toolhound-logo.png
 supabase/
   migrations/      Versioned schema — the source of truth for the database
@@ -77,12 +94,15 @@ Supabase project (`ayqcteloqdrlemehozzk`). This project is deliberately
 isolated from ToolHound OS; the `synced_to_dashboard_at` column is reserved for
 a future one-way mirror job.
 
-`supabase/migrations/` is the source of truth for the schema. Both migrations
+`supabase/migrations/` is the source of truth for the schema. All migrations
 are already applied to the live project.
 
 - `0001_label_orders.sql` — table, RLS, and the insert policy
 - `0002_harden_label_orders.sql` — least-privilege grants, integrity
   constraints, indexes
+- `0003_add_signature.sql` — the signature capture column
+- `0004_staff_read_access.sql` — read-only SELECT for signed-in staff (the
+  internal orders view)
 
 ### Why the public key is safe to publish
 
@@ -90,14 +110,17 @@ are already applied to the live project.
 to ship in client-side code. What protects the data is row level security:
 
 - `anon` holds an **INSERT-only** policy on `label_orders`
-- there is deliberately **no SELECT policy**, so the key can file an order but
-  cannot read anyone's order back
+- there is deliberately **no public SELECT policy** for `anon`, so the key can
+  file an order but cannot read anyone's order back
 - `SELECT`, `UPDATE`, `DELETE`, and `TRUNCATE` are additionally revoked at the
-  grant level, so the table stays protected even if a policy is later added by
-  mistake
+  grant level for both `anon` and `authenticated`, so the table stays
+  protected even if a policy is later added by mistake — `authenticated`'s
+  SELECT (below) is granted back explicitly and deliberately
+- signed-in staff (`authenticated`, via `admin.html`) get **read-only SELECT**
+  through the policy in `0004_staff_read_access.sql`; there is still no
+  INSERT/UPDATE/DELETE for that role
 
-Staff read orders through the Supabase dashboard or the service role. **Never
-put the `service_role` key in `public/`.**
+**Never put the `service_role` key in `public/`.**
 
 ### Validation runs in two places
 
@@ -119,9 +142,10 @@ Client-side checks are the user experience. The constraints are the guarantee.
   confirmation screen deliberately does not claim otherwise — it directs them
   to print a copy and gives them a phone number. Wiring this up means a
   Supabase Edge Function plus an email provider key.
-- **Artwork is stored inline.** Logo files are base64 encoded into
-  `logo_file_data` rather than object storage. Fine at current volume; move to
-  Supabase Storage if orders grow or files get larger.
+- **Artwork and signatures are stored inline.** Logo files and the drawn
+  signature are base64 encoded into `logo_file_data` / `signature_data`
+  rather than object storage. Fine at current volume; move to Supabase
+  Storage if orders grow or files get larger.
 - **Uploaded SVGs are untrusted.** SVG is accepted because vector artwork
   reproduces best at label size, but an SVG can carry script. Any internal tool
   that displays these logos must not render them inline — treat them as

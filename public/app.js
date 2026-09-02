@@ -43,6 +43,13 @@
   var MAX_TEXT_LINE_CHARS = 10;
   var MAX_QUANTITY = 1000000;
 
+  var QUANTITY_STEP = 500;
+  var QUANTITY_MAX_OPTION = 10000;
+  var QUANTITY_OPTIONS = [];
+  for (var qv = QUANTITY_STEP; qv <= QUANTITY_MAX_OPTION; qv += QUANTITY_STEP) {
+    QUANTITY_OPTIONS.push(qv);
+  }
+
   var STEP_TITLES = [
     'Customer & Shipping Information',
     'Label Specifications',
@@ -63,7 +70,8 @@
       textLines: ['', '', ''],
       fullColor: '',
       quantity: '', startSeq: '', instructions: '',
-      authorizedName: '', approvalDate: new Date().toISOString().slice(0, 10)
+      authorizedName: '', approvalDate: new Date().toISOString().slice(0, 10),
+      signatureData: ''
     }
   };
 
@@ -283,6 +291,7 @@
         d.logoChoice = v;
         logoField._errMsg.style.display = 'none';
         renderConditional();
+        renderColorField();
       });
     card.appendChild(logoField);
     card.appendChild(conditional);
@@ -364,18 +373,25 @@
       var tl = el('div', { class: 'textlines' });
       for (var i = 0; i < MAX_TEXT_LINES; i++) {
         (function (idx) {
-          tl.appendChild(el('input', {
+          var row = el('div', { class: 'textline-row' });
+          var counter = el('span', { class: 'char-count' },
+            String(d.textLines[idx].length) + '/' + MAX_TEXT_LINE_CHARS);
+          row.appendChild(el('input', {
             type: 'text',
             maxlength: String(MAX_TEXT_LINE_CHARS),
             placeholder: 'Line ' + (idx + 1)
-              + (idx === 0 ? ' (required)' : ' (optional)'),
+              + (idx === 0 ? ' (required, max ' : ' (optional, max ')
+              + MAX_TEXT_LINE_CHARS + ' chars)',
             value: d.textLines[idx],
             'aria-label': 'Text line ' + (idx + 1),
             oninput: function (e) {
               d.textLines[idx] = e.target.value;
+              counter.textContent = String(e.target.value.length) + '/' + MAX_TEXT_LINE_CHARS;
               textErr.style.display = 'none';
             }
           }));
+          row.appendChild(counter);
+          tl.appendChild(row);
         })(i);
       }
       fw.appendChild(tl);
@@ -388,26 +404,93 @@
 
     renderConditional();
 
-    var colorField = radioField('Should the logo be printed in full color? *', 'fullColor',
-      [{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }],
-      d.fullColor, function (v) {
-        d.fullColor = v;
-        colorField._errMsg.style.display = 'none';
-      }, 'yn');
-    card.appendChild(colorField);
+    // A logo printed in colour is a surcharge item; custom text has no logo to
+    // colour, so the question — and the charge it implies — does not apply.
+    // Lives in its own host, like `conditional`, so switching logo choices
+    // shows or hides it without rebuilding the rest of the step.
+    var colorHost = el('div', {});
+    card.appendChild(colorHost);
+    var colorField = null;
+
+    function renderColorField() {
+      colorHost.innerHTML = '';
+      colorField = null;
+      if (d.logoChoice !== 'custom_text') {
+        colorField = radioField('Should the logo be printed in full color? *', 'fullColor',
+          [{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }],
+          d.fullColor, function (v) {
+            d.fullColor = v;
+            colorField._errMsg.style.display = 'none';
+          }, 'yn');
+        colorHost.appendChild(colorField);
+        colorHost.appendChild(el('div', { class: 'hint', style: 'margin-top:-4px;margin-bottom:16px;' },
+          'Full-color printing includes an additional surcharge.'));
+      } else if (!d.fullColor) {
+        // No colour question applies to text-only labels; carry a value so
+        // the (required) database column is still satisfied.
+        d.fullColor = 'No';
+      }
+    }
+    renderColorField();
 
     var row = el('div', { class: 'row2' });
-    var qtyInput = textInput(d.quantity, function (v) {
-      d.quantity = v; updateSeqPreview();
-    }, 'number', 'e.g. 500', { min: '1', step: '1' });
-    row.appendChild(fieldWrap('Quantity *', qtyInput));
+    var qtyField = quantityField();
+    row.appendChild(qtyField.wrap);
 
     var seqInput = textInput(d.startSeq, function (v) {
       d.startSeq = v; updateSeqPreview();
-    }, 'number', 'e.g. 0', { min: '0', step: '1' });
+    }, 'text', 'e.g. 0');
     var seqField = fieldWrap('Starting Sequence # *', seqInput);
     row.appendChild(seqField);
     card.appendChild(row);
+
+    function quantityField() {
+      var isOther = d.quantity && QUANTITY_OPTIONS.indexOf(toInt(d.quantity)) === -1;
+
+      var wrap = el('div', { class: 'field' });
+      wrap.appendChild(el('label', { for: 'qtySelect' }, 'Quantity *'));
+
+      var select = el('select', {
+        id: 'qtySelect',
+        onchange: function (e) {
+          if (e.target.value === 'other') {
+            d.quantity = '';
+            otherInput.style.display = 'block';
+            otherInput.focus();
+          } else {
+            d.quantity = e.target.value;
+            otherInput.style.display = 'none';
+          }
+          markErr(select, false);
+          markErr(otherInput, false);
+          updateSeqPreview();
+        }
+      });
+      select.appendChild(el('option', { value: '' }, 'Select a quantity'));
+      QUANTITY_OPTIONS.forEach(function (q) {
+        select.appendChild(el('option', {
+          value: String(q),
+          selected: !isOther && String(q) === String(d.quantity)
+        }, q.toLocaleString() + ' labels'));
+      });
+      select.appendChild(el('option', { value: 'other', selected: isOther },
+        'Other (specify quantity)'));
+
+      var otherInput = textInput(isOther ? d.quantity : '', function (v) {
+        d.quantity = v; updateSeqPreview();
+      }, 'number', 'Enter exact quantity', { min: '1', step: '1', 'aria-label': 'Exact quantity' });
+      otherInput.style.display = isOther ? 'block' : 'none';
+      otherInput.style.marginTop = '8px';
+
+      wrap.appendChild(select);
+      wrap.appendChild(otherInput);
+      var errMsg = el('div', { class: 'err-msg', role: 'alert' }, 'Required');
+      wrap.appendChild(errMsg);
+      select._errMsg = errMsg;
+      otherInput._errMsg = errMsg;
+
+      return { wrap: wrap, select: select, otherInput: otherInput };
+    }
 
     // Spelling out the resulting range makes an off-by-one obvious before the
     // order becomes nonreturnable.
@@ -446,16 +529,18 @@
         ok = false;
       }
 
-      if (!d.fullColor) { colorField._errMsg.style.display = 'block'; ok = false; }
+      if (colorField && !d.fullColor) { colorField._errMsg.style.display = 'block'; ok = false; }
 
+      var qtyTarget = qtyField.otherInput.style.display === 'none'
+        ? qtyField.select : qtyField.otherInput;
       var qty = toInt(d.quantity);
-      if (qty === null) { markErr(qtyInput, true, 'Enter a quantity'); ok = false; }
-      else if (qty < 1) { markErr(qtyInput, true, 'Quantity must be at least 1'); ok = false; }
+      if (qty === null) { markErr(qtyTarget, true, 'Enter a quantity'); ok = false; }
+      else if (qty < 1) { markErr(qtyTarget, true, 'Quantity must be at least 1'); ok = false; }
       else if (qty > MAX_QUANTITY) {
-        markErr(qtyInput, true, 'For orders above ' + MAX_QUANTITY.toLocaleString()
+        markErr(qtyTarget, true, 'For orders above ' + MAX_QUANTITY.toLocaleString()
           + ' labels, please contact ToolHound directly');
         ok = false;
-      } else markErr(qtyInput, false);
+      } else markErr(qtyTarget, false);
 
       var seq = toInt(d.startSeq);
       if (seq === null) { markErr(seqInput, true, 'Enter a starting sequence number'); ok = false; }
@@ -530,6 +615,97 @@
     + 'labels are custom manufactured and cannot be returned once the approved '
     + 'order has been submitted for production.';
 
+  /**
+   * A small canvas-based signature capture. Pointer events unify mouse,
+   * touch, and stylus input without separate handlers for each.
+   */
+  function signaturePad(d) {
+    var wrap = el('div', { class: 'field' });
+    wrap.appendChild(el('label', {}, 'Signature *'));
+
+    var canvas = el('canvas', {
+      class: 'sigpad',
+      width: '600',
+      height: '160',
+      'aria-label': 'Draw your signature here'
+    });
+    var ctx = canvas.getContext('2d');
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1a1a1a';
+
+    var hasSignature = false;
+    var drawing = false;
+
+    function pos(e) {
+      var rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function start(e) {
+      e.preventDefault();
+      drawing = true;
+      hasSignature = true;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+      var p = pos(e);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      errMsg.style.display = 'none';
+      canvas.classList.remove('err');
+    }
+    function move(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      var p = pos(e);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    function stop() { drawing = false; }
+
+    canvas.addEventListener('pointerdown', start);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', stop);
+    canvas.addEventListener('pointerleave', stop);
+    canvas.addEventListener('pointercancel', stop);
+
+    // Restore a signature already drawn if the customer stepped back to this
+    // page and returned, rather than discarding it.
+    if (d.signatureData) {
+      hasSignature = true;
+      var img = new Image();
+      img.onload = function () { ctx.drawImage(img, 0, 0); };
+      img.src = d.signatureData;
+    }
+
+    wrap.appendChild(el('div', { class: 'sigpad-wrap' }, [canvas]));
+
+    var clearBtn = el('button', {
+      type: 'button',
+      class: 'ghost sigpad-clear',
+      onclick: function () {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasSignature = false;
+        d.signatureData = '';
+      }
+    }, 'Clear signature');
+    wrap.appendChild(clearBtn);
+
+    var errMsg = el('div', { class: 'err-msg', role: 'alert' },
+      'Please sign to authorize this order');
+    wrap.appendChild(errMsg);
+
+    return {
+      wrap: wrap,
+      canvas: canvas,
+      isSigned: function () { return hasSignature; },
+      commit: function () { d.signatureData = canvas.toDataURL('image/png'); },
+      errMsg: errMsg
+    };
+  }
+
   function renderStep4(card) {
     var d = state.data;
 
@@ -548,6 +724,9 @@
       oninput: function (e) { d.approvalDate = e.target.value; }
     });
     card.appendChild(fieldWrap('Approval Date *', dateInput));
+
+    var sigField = signaturePad(d);
+    card.appendChild(sigField.wrap);
 
     var cb = el('input', { type: 'checkbox', id: 'agreeCb' });
     var agreeWrap = el('div', { class: 'agree' }, [
@@ -574,6 +753,16 @@
 
       agreeErr.style.display = cb.checked ? 'none' : 'block';
       if (!cb.checked) ok = false;
+
+      if (sigField.isSigned()) {
+        sigField.commit();
+        sigField.errMsg.style.display = 'none';
+        sigField.canvas.classList.remove('err');
+      } else {
+        sigField.errMsg.style.display = 'block';
+        sigField.canvas.classList.add('err');
+        ok = false;
+      }
 
       if (!ok) { focusFirstError(card); return; }
       submitOrder(bar._primary);
@@ -624,7 +813,8 @@
       start_seq: toInt(d.startSeq),
       instructions: d.instructions.trim() ? d.instructions.trim() : null,
       authorized_name: d.authorizedName.trim(),
-      approval_date: d.approvalDate
+      approval_date: d.approvalDate,
+      signature_data: d.signatureData || null
     };
   }
 
@@ -707,6 +897,66 @@
   // Step 5 — confirmation, and the printable authorization record
   // ---------------------------------------------------------------------------
 
+  /** Screen version of the ToolHound sign-off, shown on the confirmation step. */
+  function contactCard() {
+    var c = CONFIG.contact || {};
+    var box = el('div', { class: 'contact-card' });
+    if (c.name && c.email) {
+      box.appendChild(el('p', {}, [
+        'If you have any other questions, please feel free to contact '
+          + c.name + ' at ',
+        el('a', { href: 'mailto:' + c.email }, c.email)
+      ]));
+    }
+    box.appendChild(el('p', { style: 'margin-top:10px;' }, 'Thank you,'));
+    box.appendChild(el('p', { style: 'font-weight:600;margin:0 0 10px;' }, 'Your ToolHound Team'));
+
+    var lines = el('div', { class: 'contact-lines' });
+    if (c.phone) lines.appendChild(el('div', {}, c.phone));
+    if (c.tollFree) lines.appendChild(el('div', {}, 'Toll Free: ' + c.tollFree));
+    if (c.generalEmail) {
+      lines.appendChild(el('div', {}, [
+        'General Inquiries: ', el('a', { href: 'mailto:' + c.generalEmail }, c.generalEmail)
+      ]));
+    }
+    if (c.supportEmail) {
+      lines.appendChild(el('div', {}, [
+        'Support Inquiries: ', el('a', { href: 'mailto:' + c.supportEmail }, c.supportEmail)
+      ]));
+    }
+    if (c.salesEmail) {
+      lines.appendChild(el('div', {}, [
+        'Sales Inquiries: ', el('a', { href: 'mailto:' + c.salesEmail }, c.salesEmail)
+      ]));
+    }
+    if (c.website) {
+      lines.appendChild(el('div', {}, [
+        el('a', { href: c.website, target: '_blank', rel: 'noopener' }, c.website)
+      ]));
+    }
+    box.appendChild(lines);
+    return box;
+  }
+
+  /** Plain-text version of the same sign-off for the printed record. */
+  function contactBlock() {
+    var c = CONFIG.contact || {};
+    var lines = [];
+    if (c.name && c.email) {
+      lines.push('Questions? Contact ' + c.name + ' at ' + c.email);
+    }
+    var reach = [];
+    if (c.phone) reach.push(c.phone);
+    if (c.tollFree) reach.push('Toll Free: ' + c.tollFree);
+    if (c.generalEmail) reach.push('General: ' + c.generalEmail);
+    if (c.website) reach.push(c.website);
+    if (reach.length) lines.push(reach.join(' · '));
+
+    var box = el('div', { style: 'margin-top:16px;font-size:11px;color:var(--ink-soft);' });
+    lines.forEach(function (l) { box.appendChild(el('div', {}, l)); });
+    return box;
+  }
+
   function renderStep5(card) {
     var d = state.data;
 
@@ -726,10 +976,7 @@
       + 'ToolHound for production. Please keep your order reference for any '
       + 'follow-up.'));
     s.appendChild(el('div', { class: 'ref' }, 'Reference: ' + state.orderRef));
-    s.appendChild(el('p', {
-      style: 'color:var(--ink-soft);font-size:13px;max-width:440px;margin:10px auto 0;'
-    }, 'Questions about this order? Call ToolHound at '
-      + (CONFIG.supportPhone || '') + '.'));
+    s.appendChild(contactCard());
 
     var buttons = el('div', { style: 'margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;' });
     buttons.appendChild(el('button', {
@@ -766,11 +1013,15 @@
     auth.appendChild(el('div', { class: 'authtext' }, AUTH_TEXT));
     auth.appendChild(reviewRow('Authorized By', d.authorizedName));
     auth.appendChild(reviewRow('Approval Date', d.approvalDate));
+    if (d.signatureData) {
+      auth.appendChild(el('div', { class: 'review-row' }, [
+        el('span', { class: 'k' }, 'Signature'),
+        el('img', { src: d.signatureData, class: 'sig-print', alt: 'Signature' })
+      ]));
+    }
     p.appendChild(auth);
 
-    p.appendChild(el('div', {
-      style: 'margin-top:16px;font-size:11px;color:var(--ink-soft);'
-    }, 'ToolHound · ' + (CONFIG.supportPhone || '')));
+    p.appendChild(contactBlock());
     card.appendChild(p);
   }
 

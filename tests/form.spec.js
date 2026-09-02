@@ -59,15 +59,43 @@ async function fillStep1(page, overrides = {}) {
   await page.getByLabel('Country *').fill(v.country);
 }
 
+const QUANTITY_OPTIONS = [500, 1000, 1500, 2000, 2500, 5000, 7500, 10000];
+
+/** Pick the quantity dropdown option when it's a standard increment, else fall
+ *  back to the "Other" free-entry input. */
+async function fillQuantity(page, quantity) {
+  const n = Number(quantity);
+  if (QUANTITY_OPTIONS.includes(n)) {
+    await page.getByLabel('Quantity *').selectOption(String(n));
+  } else {
+    await page.getByLabel('Quantity *').selectOption('other');
+    await page.getByLabel('Exact quantity').fill(String(quantity));
+  }
+}
+
 async function fillStep2(page, { quantity = '500', startSeq = '1000' } = {}) {
   await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
   await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-  await page.getByLabel('Quantity *').fill(quantity);
+  await fillQuantity(page, quantity);
   await page.getByLabel('Starting Sequence # *').fill(startSeq);
+}
+
+/** Draws a short stroke across the signature pad — enough to mark it signed. */
+async function signCanvas(page) {
+  const canvas = page.locator('.sigpad');
+  // The pad often sits below the fold at the default viewport height, and
+  // raw mouse coordinates don't auto-scroll the way locator actions do.
+  await canvas.scrollIntoViewIfNeeded();
+  const box = await canvas.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 120, box.y + 90, { steps: 5 });
+  await page.mouse.up();
 }
 
 async function fillStep4(page, name = 'Dana Reyes') {
   await page.getByLabel('Authorized Name *').fill(name);
+  await signCanvas(page);
   await page.getByLabel('I have read and agree').check();
 }
 
@@ -165,7 +193,7 @@ test.describe('step 2 validation', () => {
     async ({ page }) => {
       await page.getByRole('radio', { name: 'Custom Logo' }).check();
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-      await page.getByLabel('Quantity *').fill('100');
+      await fillQuantity(page, '100');
       await page.getByLabel('Starting Sequence # *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
 
@@ -178,12 +206,20 @@ test.describe('step 2 validation', () => {
   // order could be placed with no text to print.
   test('requires at least one line of custom text', async ({ page }) => {
     await page.getByRole('radio', { name: 'Custom Text' }).check();
-    await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-    await page.getByLabel('Quantity *').fill('100');
+    await fillQuantity(page, '100');
     await page.getByLabel('Starting Sequence # *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Enter at least one line of text')).toBeVisible();
+  });
+
+  // Custom text has no logo to colour, so the full-color question — and the
+  // surcharge it implies — should not appear for that choice.
+  test('hides the full-color question for custom text orders', async ({ page }) => {
+    await page.getByRole('radio', { name: 'Custom Text' }).check();
+    await expect(page.getByText('Should the logo be printed in full color?')).toBeHidden();
+    await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
+    await expect(page.getByText('Should the logo be printed in full color?')).toBeVisible();
   });
 
   test('caps each custom text line at 10 characters', async ({ page }) => {
@@ -198,7 +234,7 @@ test.describe('step 2 validation', () => {
   test('rejects a quantity of zero', async ({ page }) => {
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
     await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-    await page.getByLabel('Quantity *').fill('0');
+    await fillQuantity(page, '0');
     await page.getByLabel('Starting Sequence # *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
@@ -209,7 +245,7 @@ test.describe('step 2 validation', () => {
   test('rejects a negative starting sequence', async ({ page }) => {
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
     await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-    await page.getByLabel('Quantity *').fill('50');
+    await fillQuantity(page, '50');
     await page.getByLabel('Starting Sequence # *').fill('-5');
     await page.getByRole('button', { name: 'Continue' }).click();
 
@@ -218,7 +254,7 @@ test.describe('step 2 validation', () => {
 
   test('previews the resulting sequence range as the customer types',
     async ({ page }) => {
-      await page.getByLabel('Quantity *').fill('250');
+      await fillQuantity(page, '250');
       await page.getByLabel('Starting Sequence # *').fill('500');
       await expect(page.getByText('This order will print labels 500 through 749.'))
         .toBeVisible();
@@ -248,7 +284,7 @@ test.describe('step 2 validation', () => {
       await expect(page.getByText('Selected: acme-mark.png')).toBeVisible();
 
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-      await page.getByLabel('Quantity *').fill('100');
+      await fillQuantity(page, '100');
       await page.getByLabel('Starting Sequence # *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
       await page.getByRole('button', { name: 'Continue to Authorization' }).click();
@@ -270,8 +306,7 @@ test.describe('custom text orders', () => {
     await page.getByRole('radio', { name: 'Custom Text' }).check();
     await page.getByLabel('Text line 1').fill('ACME');
     await page.getByLabel('Text line 3').fill('YARD 4');
-    await page.getByRole('radio', { name: 'No', exact: true }).check();
-    await page.getByLabel('Quantity *').fill('75');
+    await fillQuantity(page, '75');
     await page.getByLabel('Starting Sequence # *').fill('0');
     await page.getByRole('button', { name: 'Continue' }).click();
 

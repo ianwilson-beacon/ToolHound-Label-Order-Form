@@ -16,6 +16,18 @@ window.TOOLHOUND_CONFIG = {
   // Shown in the header and on the printed authorization record.
   supportPhone: '1 (800) 387-8665',
 
+  // Shown on the confirmation screen and the printed authorization record.
+  contact: {
+    name: 'Graham Cooper',
+    email: 'graham.cooper@toolhound.com',
+    phone: '+1-847-386-1700',
+    tollFree: '+1-800-387-8665',
+    generalEmail: 'info@toolhound.com',
+    supportEmail: 'support@toolhound.com',
+    salesEmail: 'sales@toolhound.com',
+    website: 'https://www.toolhound.com/'
+  },
+
   // Largest artwork file a customer may attach, in megabytes. The database
   // caps the encoded payload at 6,000,000 characters, which is roughly 4.2MB
   // of binary — keep this at or below that.
