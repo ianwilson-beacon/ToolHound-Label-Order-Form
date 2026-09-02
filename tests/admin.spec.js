@@ -543,7 +543,7 @@ test('hands the order over as a file the Ramp PO skill can read', async ({ page 
   // forgotten what it was.
   expect(payload.skill).toBe('label-order-ramp-po');
   expect(payload.purpose).toMatch(/Ramp PO/);
-  expect(payload.still_needed.join(' ')).toMatch(/rate/);
+  expect(payload.note).toMatch(/0\.00 per unit/);
 
   expect(payload.orders).toHaveLength(1);
   const order = payload.orders[0];

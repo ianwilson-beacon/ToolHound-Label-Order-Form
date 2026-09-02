@@ -362,10 +362,9 @@
       skill: 'label-order-ramp-po',
       purpose: 'Inputs for the Metalcraft vendor PO. Give this file to Claude '
         + 'and ask it to build the Ramp PO.',
-      still_needed: [
-        'Metalcraft rate per label, from their quote for this order',
-        'Metalcraft quotation number, from the idplate thread'
-      ],
+      note: 'Label POs go to Metalcraft at 0.00 per unit. They do not invoice '
+        + 'until they have the PO, so the price is not known when it is raised '
+        + '— the quantity and the line description are what the PO communicates.',
       generated_at: new Date().toISOString(),
       source: window.location.origin + '/admin',
       orders: rows
@@ -889,11 +888,10 @@
       }, 'Download PO inputs'),
       el('div', {
         class: 'artwork-note',
-        text: 'A JSON file with everything this order can tell you about the '
-          + 'Metalcraft PO. Hand it to Claude and ask for the Ramp PO. Two '
-          + 'things are not in it and cannot be: the vendor rate and the '
-          + 'Metalcraft quotation number, which come from the quote for this '
-          + 'order.'
+        text: 'A JSON file with everything needed for the Metalcraft PO. Hand '
+          + 'it to Claude and ask for the Ramp PO. The unit price is not in it '
+          + 'and does not need to be — these POs go out at 0.00, because '
+          + 'Metalcraft invoices once they have the PO.'
       })
     ]));
 

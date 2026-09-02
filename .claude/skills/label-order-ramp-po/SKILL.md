@@ -1,6 +1,6 @@
 ---
 name: label-order-ramp-po
-description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since the web form deliberately omits vendor pricing. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job.
+description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since a label PO is raised at 0.00 per unit before Metalcraft invoices. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job.
 ---
 
 # Label order to Ramp PO
@@ -17,27 +17,25 @@ someone wants that, they want the `toolhound-invoice-prep` skill instead.
 
 ## The one thing to get right
 
-The order form now asks for the label size, sequence prefix, customer PO,
-delivery phone and receiving contact, so most of the PO fills itself. Two
-values still cannot come from a customer, and never will:
+**Label POs go to Metalcraft at 0.00 per unit.** They do not invoice until they
+have the PO, so the price genuinely is not known when it is raised. The
+quantity and the line description are what the PO communicates; the money
+follows on their invoice.
 
-| Missing | Where it comes from |
-| --- | --- |
-| Rate (vendor cost per label) | Metalcraft's quote **for this order** — the idplate email thread with Jack Ward, `jackw@idplate.com` |
-| Metalcraft quotation number(s) | Same idplate thread |
+An empty rate is therefore not a gap to chase. The script writes `0.00` and
+says why. Do not hunt for a quotation number that does not exist yet, and do
+not put a placeholder in the memo — a PO reading `Metalcraft Quotation: NEEDS
+INPUT` reaches the vendor looking like a mistake, so that segment is dropped
+and the memo carries the customer PO alone.
 
-Emit these as `NEEDS INPUT` and say so. Never estimate a rate and never reuse
-one from a previous order — Metalcraft quotes each order individually, so last
-time's rate is not a stale number, it is the wrong one.
+When a quote **does** exist — occasionally one is obtained upfront to price a
+customer quote, as on the Shaw order — pass `--rate` and `--quote` and the PO
+totals normally.
 
-A PO with honest blanks gets filled in. One with a plausible-looking wrong
-number gets submitted, and becomes a purchasing error nobody catches until the
-invoice arrives. A missing vendor quote is a normal, expected state, not a
-failure.
-
-Orders placed **before** those fields existed have no size and no prefix. Those
-come out as `NEEDS INPUT` too, and the size has to be read off the signed
-acknowledgement form.
+The order form supplies label size, sequence prefix, customer PO, delivery
+phone and receiving contact, so a current order needs nothing added. Orders
+placed before those fields existed have no size; that one is worth saying, and
+it comes off the signed acknowledgement form.
 
 ## How to run it
 
@@ -71,14 +69,15 @@ Order by `start_seq` so multiple line items come out in sequence order. Skip
 
 ```bash
 python3 .claude/skills/label-order-ramp-po/scripts/build_ramp_po.py \
-    --file THL-MTKE78Z7-Z9GAB4-ramp-po-input.json \
-    --rate 0.83124 \
-    --quote "257037 & 257038"
+    --file THL-MTKE78Z7-Z9GAB4-ramp-po-input.json
 ```
 
+That is the whole command for a normal order. Add `--rate` and `--quote` only
+in the uncommon case where Metalcraft has already quoted.
+
 It reads the dashboard's wrapped file, a plain array of rows, or a single row
-object. Usually `--rate` and `--quote` are all you need to add: size, prefix,
-customer PO, phone and receiving contact come off the order. `--size`,
+object. Size, prefix, customer PO, phone and receiving contact all come off
+the order. `--size`,
 `--series-prefix`, `--customer-po` and `--logo-name` are overrides for an older
 order that lacks them, or for a correction. Anything still unknown comes out as
 `NEEDS INPUT` with a checklist under the block. Repeatable flags apply per line
@@ -120,10 +119,10 @@ can sanity-check the output:
 The script flags these; your job is to make sure they land rather than
 scrolling past:
 
-- **Margin inversion.** Vendor cost has exceeded the customer price on real
-  orders — Shaw's ToolHound-logo line cost \$415.62 from Metalcraft and billed
-  at \$155.00. The order form carries no customer pricing, so nothing can catch
-  this automatically. Surface it; never assume it is intended.
+- **Margin inversion**, but only once Metalcraft's invoice arrives. Their cost
+  has exceeded the customer price on real orders — Shaw's ToolHound-logo line
+  cost \$415.62 and billed at \$155.00. Nothing at PO time can catch that, since
+  the PO carries no price; it is a check for whoever reconciles the invoice.
 - **Logo naming.** The description uses the customer's shorthand ("Shaw logo"),
   while NetSuite Customer/Job keeps the full legal name ("The Shaw Group"). The
   form only captures whatever the customer typed into Company, so check it.

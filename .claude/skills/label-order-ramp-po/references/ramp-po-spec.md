@@ -68,7 +68,7 @@ One line per label set.
 | --- | --- | --- |
 | Description | Acknowledgement form | Standardized — see below |
 | Quantity | Ack form / customer PO | Must match the ack form's Number of Labels |
-| Rate | **Vendor quote for this order** | Metalcraft's cost, not the customer price. Quoted per order, so there is no price list to look it up in and no previous order to copy. Amount auto-calculates and locks |
+| Rate | **0.00** on a normal label PO | Metalcraft does not invoice until they have the PO, so the unit price is not known when it is raised. Supply a real rate only when a quote was obtained upfront. Amount auto-calculates and locks |
 | NetSuite Category/Inventory Item | Standing default | `506000 - Cost of Goods Sold - Hardware` |
 | NetSuite Department | Standing default | `34 - ToolHound` |
 | NetSuite Classification | Standing default | `Non-Recurring Revenue - Hardware` |
@@ -157,8 +157,10 @@ PO total (check): 1,097.37 USD
   sequences over the customer PO or a misprinted PO PDF.
 - **Line order** may differ between the customer PO and the Metalcraft PO. Match
   by sequence range, not by position.
-- **Missing vendor quote** is an expected state. Build the PO with Rate and
-  total as `NEEDS INPUT` and report it as pending rather than estimating.
+- **No vendor quote** is the normal state, not an exception: 518 of 602
+  historical Metalcraft POs carry a zero total, and the archived PO PDFs show
+  `RATE 0.00` / `TOTAL USD 0.00`. Raise the PO at 0.00 and drop the quotation
+  segment from the memo rather than writing a placeholder into it.
 
 ## Historical note: the QuickBooks-era format
 

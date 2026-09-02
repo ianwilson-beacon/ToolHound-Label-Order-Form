@@ -20,17 +20,38 @@ else
   fail=1
 fi
 
-# A run with nothing supplied must not invent values, and must say what it needs.
+# The normal case: no Metalcraft quote exists yet, because they do not invoice
+# until they have the PO. Rates go out at 0.00 and the quotation segment is
+# dropped from the memo rather than filled with a placeholder.
 bare=$(python3 ../scripts/build_ramp_po.py --file shaw_rows.json)
-for want in "Line 1 rate: NEEDS INPUT" "Metalcraft Quotation: NEEDS INPUT" \
-            "PO total (check): NEEDS INPUT" "no label size on the order"; do
+for want in "Line 1 rate: 0.00" "PO total (check): 0.00 USD" \
+            "Metalcraft invoices after they receive the PO"; do
   if grep -qF "$want" <<<"$bare"; then
-    echo "PASS  missing input surfaced: $want"
+    echo "PASS  zero-rate PO is the normal case: $want"
   else
-    echo "FAIL  missing input NOT surfaced: $want"
+    echo "FAIL  zero-rate PO not handled: $want"
     fail=1
   fi
 done
+
+# A placeholder in the memo would reach the vendor looking like a mistake.
+for unwanted in "Metalcraft Quotation: NEEDS INPUT" "Line 1 rate: NEEDS INPUT" \
+                "PO total (check): NEEDS INPUT" "vendor rate is missing"; do
+  if grep -qF "$unwanted" <<<"$bare"; then
+    echo "FAIL  chases a value that does not exist yet: $unwanted"
+    fail=1
+  else
+    echo "PASS  does not chase a nonexistent value: $unwanted"
+  fi
+done
+
+# Size genuinely is missing on a pre-0008 order, and that one is worth saying.
+if grep -qF "no label size on the order" <<<"$bare"; then
+  echo "PASS  missing input surfaced: no label size on the order"
+else
+  echo "FAIL  missing input NOT surfaced: no label size on the order"
+  fail=1
+fi
 
 # An order carrying the fields the form now asks for should need no flags for
 # them, and should route the shipment to the receiving contact rather than the
@@ -65,6 +86,14 @@ done
 # The dashboard's download button and this script are two halves of one
 # workflow, so the file it emits has to parse here without editing.
 dl=$(python3 ../scripts/build_ramp_po.py --file dashboard_download.json --rate 0.14 --quote Q9)
+# And the same order the way it is normally raised, with no quote at all.
+dl0=$(python3 ../scripts/build_ramp_po.py --file dashboard_download.json)
+if grep -qF "Memo to Supplier: Customer PO # 4500620115" <<<"$dl0"; then
+  echo "PASS  memo drops the quotation segment when there is no quote"
+else
+  echo "FAIL  memo did not drop the quotation segment"
+  fail=1
+fi
 for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
             "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
             "Customer PO # 4500620115" \

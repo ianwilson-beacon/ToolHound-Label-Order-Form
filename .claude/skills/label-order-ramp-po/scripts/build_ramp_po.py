@@ -286,15 +286,17 @@ def build(rows, opts):
     firstname, lastname = split_contact_name(receiver)
 
     row_po = (first.get("customer_po") or "").strip()
-    quote = opts.quote or NEEDS_INPUT
     customer_po = opts.customer_po or row_po or NEEDS_INPUT
-    memo = f"Metalcraft Quotation: {quote}; Customer PO # {customer_po}"
-    if not opts.quote:
-        flags.append(
-            "Metalcraft quotation number is missing. It comes from the idplate "
-            "email thread (Jack Ward, jackw@idplate.com), not the order form. "
-            "Drop that segment of the memo if the quote has not come back yet."
-        )
+
+    # Most label POs are raised before any Metalcraft quote exists, so the
+    # quotation segment is dropped rather than filled with a placeholder. A PO
+    # that reads "Metalcraft Quotation: NEEDS INPUT" would go to the vendor
+    # looking like a mistake; one that simply carries the customer PO does not.
+    if opts.quote:
+        memo = f"Metalcraft Quotation: {opts.quote}; Customer PO # {customer_po}"
+    else:
+        memo = f"Customer PO # {customer_po}"
+
     if customer_po == NEEDS_INPUT:
         flags.append(
             "No customer PO number. The form asks for one but it is optional, so "
@@ -323,6 +325,7 @@ def build(rows, opts):
 
     total = 0.0
     total_known = True
+    any_rate_given = False
     seen_customer_jobs = set()
 
     for i, row in enumerate(rows, start=1):
@@ -337,14 +340,13 @@ def build(rows, opts):
         )
         out.append(f"Line {i} quantity: {qty if qty is not None else NEEDS_INPUT}")
         if rate is None:
-            out.append(f"Line {i} rate: {NEEDS_INPUT}")
-            total_known = False
-            flags.append(
-                f"{ref}: vendor rate is missing. It is Metalcraft's cost per label "
-                "from their quote — never the customer price, and never an "
-                "estimate. Re-run with --rate once the quote arrives."
-            )
+            # Not a gap: label POs go to Metalcraft at 0.00 per unit. They do
+            # not invoice until they have the PO, so the price genuinely is not
+            # known when it is raised. Writing NEEDS INPUT here would send
+            # someone hunting for a number that does not exist yet.
+            out.append("Line %d rate: 0.00" % i)
         else:
+            any_rate_given = True
             out.append(f"Line {i} rate: {rate}")
             if rate > RATE_SUSPICIOUS_ABOVE or rate < RATE_SUSPICIOUS_BELOW:
                 flags.append(
@@ -379,7 +381,15 @@ def build(rows, opts):
             )
         out.append(f"Line {i} Billable?: {BILLABLE}")
 
-    if total_known:
+    if not any_rate_given:
+        out.append(f"PO total (check): 0.00 {CURRENCY}")
+        flags.append(
+            "Rates are 0.00 and the PO total is 0.00, which is how label POs are "
+            "raised: Metalcraft invoices after they receive the PO, so the unit "
+            "price is not known yet. Quantities and the line descriptions are "
+            "what this PO is actually communicating — check those."
+        )
+    elif total_known:
         out.append(f"PO total (check): {total:,.2f} {CURRENCY}")
         flags.append(
             "Compare each line's vendor cost against what the customer is being "
