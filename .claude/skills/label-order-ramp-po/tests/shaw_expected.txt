@@ -1,0 +1,36 @@
+Who will own the PO: Ian Wilson
+Entity: ToolHound Inc.
+Message for approvers: (blank)
+Vendor: Metalcraft USD
+Memo to Supplier: Metalcraft Quotation: 257037 & 257038; Customer PO # 1700342 OP Rev. 000
+Ship-to first name: Juan
+Ship-to last name: Lerma
+Ship-to phone country: US (+1)
+Ship-to phone: (blank)
+Ship-to email: jlerma@theshawgrp.com
+Ship-to country: United States of America
+Ship-to street: 850 Pine St
+Ship-to floor/suite: (blank)
+Ship-to city: Beaumont
+Ship-to state: Texas
+Ship-to zip: 77701
+Currency: USD
+Line 1 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: 1; SEQUENCE END: 500
+Line 1 quantity: 500
+Line 1 rate: 0.83124
+Line 1 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware
+Line 1 NetSuite Department: 34 - ToolHound
+Line 1 NetSuite Classification: Non-Recurring Revenue - Hardware
+Line 1 NetSuite Division: (blank)
+Line 1 NetSuite Customer/Job: The Shaw Group
+Line 1 Billable?: No
+Line 2 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); Shaw logo (black & white); SEQUENCE START: 501; SEQUENCE END: 5500
+Line 2 quantity: 5000
+Line 2 rate: 0.13635
+Line 2 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware
+Line 2 NetSuite Department: 34 - ToolHound
+Line 2 NetSuite Classification: Non-Recurring Revenue - Hardware
+Line 2 NetSuite Division: (blank)
+Line 2 NetSuite Customer/Job: The Shaw Group
+Line 2 Billable?: No
+PO total (check): 1,097.37 USD
