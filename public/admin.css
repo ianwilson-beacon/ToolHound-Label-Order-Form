@@ -285,3 +285,15 @@ button.link:hover{color:var(--red-dark);}
   color:var(--ink-soft);
   margin-top:8px;
 }
+
+/* The drawn authorization signature. Rendered inline, unlike the uploaded
+   artwork, because the database constrains this column to a PNG data URL and a
+   PNG cannot carry script. */
+.sig-view{
+  display:block;
+  max-width:100%;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:9px;
+  padding:8px;
+}

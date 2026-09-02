@@ -17,13 +17,51 @@ A four step wizard, submitting one row to Supabase:
 
 1. **Customer & shipping** — company, contact, delivery address
 2. **Label specifications** — custom logo / custom text / ToolHound logo,
-   full-colour choice, quantity, starting sequence number, special instructions
+   full-colour choice (logo orders only — it carries a surcharge, so it does
+   not apply to text-only labels), quantity (500-unit increments, or an exact
+   custom amount), starting sequence number, special instructions
 3. **Review** — everything on one screen, including the computed sequence range
-4. **Authorization** — named approval plus an explicit agreement to the
-   nonreturnable terms
+4. **Authorization** — named approval, a drawn signature, and an explicit
+   agreement to the nonreturnable terms
 
-The confirmation screen shows the order reference and offers **Print / save a
-copy**, which produces a one-page authorization record.
+The confirmation screen shows the order reference, ToolHound's contact
+information, and offers **Print / save a copy**, which produces a one-page
+authorization record.
+
+## Internal orders view
+
+`admin.html` is a staff-only page for browsing submitted orders — no
+service-role key involved. It signs in with Supabase Auth, three ways:
+
+- **Google**, restricted to `@beaconsoftware.com`
+- **Microsoft**, restricted to `@toolhound.com`
+- **Email + password**, for an account created manually in the Supabase
+  dashboard (**Authentication → Users → Add user**) — no public sign-up
+
+Once signed in, the `authenticated` role's SELECT policy on `label_orders`
+(`supabase/migrations/0004_staff_read_access.sql`) is what actually allows
+reading orders. The page is `noindex` and unlinked from the public form, but
+it is still reachable by anyone who has the URL — the login screen is what
+protects it, not obscurity.
+
+The domain restriction is enforced twice: `admin.js` hints each provider's
+account picker toward the right domain and re-checks the signed-in email
+before showing any data, but the real boundary is
+`supabase/migrations/0005_oauth_domain_restriction.sql` — a trigger on
+`auth.users` that rejects account creation outright for a Google or
+Microsoft sign-in outside the approved domain. A client-side check alone
+would not be a boundary, since the Auth API can be called directly.
+
+**One manual step is required before Google/Microsoft sign-in works**: the
+OAuth providers themselves are enabled in the Supabase dashboard, not from
+this repo. In the **ToolHound Label Orders** project, go to
+**Authentication → Sign In / Providers**, enable **Google** and **Azure**,
+and give each the Client ID/Secret from a Google Cloud OAuth app and a
+Microsoft Entra ID (Azure AD) app registration respectively (reuse the ones
+already set up for the ToolHound Dashboard if that's simpler than creating
+new ones — a Google/Azure app can serve multiple redirect URIs). Add this
+project's callback URL — shown on that same settings page — as an
+authorized redirect URI in each app.
 
 Submitting also emails `sales@toolhound.com` and puts the order on the internal
 dashboard at `/admin`, where staff track it through PO sent, production
@@ -40,7 +78,7 @@ public/            Everything that gets deployed
   admin.css        Dashboard styles (loaded after styles.css)
   admin-config.js  GENERATED — Clerk key, written by scripts/
   styles.css       Shared styles, including the print stylesheet
-  config.js        Supabase URL + publishable key, support phone
+  config.js        Supabase URL + publishable key, support phone, contact info
   robots.txt
   toolhound-logo.png
 scripts/
@@ -142,6 +180,11 @@ through the API, and a signed-in user cannot rewrite the customer's own order
 details. Moving an order backwards clears the stamps it has given up, so the
 timeline never claims a milestone the order has not reached.
 
+The order drawer shows the customer's drawn signature inline. That is safe
+where the uploaded artwork is not, and the difference is the database
+constraint: `signature_data` is bounded to a `data:image/png;base64,` payload,
+and a PNG cannot carry script.
+
 Artwork is downloaded, never previewed. Customers upload SVG because vector art
 reproduces best at label size, and an SVG can carry script; rendering one
 inline on a page holding a live staff session would be stored XSS with the
@@ -193,6 +236,22 @@ non-allowlisted address cannot get a session at all.
 Rollback is `SUPABASE_CLERK_AUTH=false` and a redeploy: the client falls back to
 the anon key, which holds no SELECT policy, so the dashboard goes blank rather
 than open.
+
+### Migrating off Supabase Auth
+
+This dashboard previously signed in through Supabase Auth with Google and
+Microsoft providers plus admin-created email accounts. Clerk replaces that.
+Two leftovers to deal with:
+
+- **Turn the Supabase Auth providers off** (Authentication → Sign In /
+  Providers): Google, Microsoft/Azure, and especially Email. Leaving Email
+  enabled with sign-ups on is what made 0004's `using (true)` policy an
+  exposure. It is not an exposure any more, because 0006 checks the domain in
+  the policy, but there is no reason to leave an unused sign-up path open.
+- **`0005_oauth_domain_restriction.sql` stays.** Its trigger on `auth.users`
+  is dead code under Clerk, which never creates `auth.users` rows, but it costs
+  nothing and it is the right guard if a Supabase Auth provider is ever turned
+  back on.
 
 ### What this project does *not* do
 
@@ -262,10 +321,25 @@ a future one-way mirror job.
 - `0001_label_orders.sql` — table, RLS, and the insert policy *(applied)*
 - `0002_harden_label_orders.sql` — least-privilege grants, integrity
   constraints, indexes *(applied)*
-- `0003_order_status_and_staff_access.sql` — the status pipeline, the stage
-  timestamp triggers, and the staff read/write policies *(apply this one)*
+- `0003_add_signature.sql` — the signature capture column *(applied)*
+- `0004_staff_read_access.sql` — SELECT for signed-in staff *(applied)*
+- `0005_oauth_domain_restriction.sql` — the Supabase Auth sign-up domain
+  trigger *(applied)*
+- `0006_restrict_staff_reads.sql` — replaces 0004's `using (true)` with a
+  domain-checked predicate *(applied)*
+- `0007_order_status_workflow.sql` — the status pipeline, the stage timestamp
+  triggers, and the staff UPDATE policy *(apply this one)*
 
-Migration 0003 is written to be re-runnable: every policy, constraint, and
+**Why 0006 exists.** 0004 granted staff SELECT with `using (true)`, relying on
+"there is no public sign-up" to make `authenticated` mean "staff". 0005's
+trigger only restricts the `google` and `azure` providers, so any other
+enabled sign-up path fell through, and third-party auth does not create
+`auth.users` rows at all — so the trigger cannot see a Clerk session. 0006
+moves the domain check into the policy, where it runs on every request however
+the session was minted. 0005's trigger stays as a second line of defense if a
+Supabase Auth provider is ever re-enabled.
+
+Migration 0007 is written to be re-runnable: every policy, constraint, and
 trigger it creates is dropped first, and the column additions are
 `if not exists`.
 
@@ -284,6 +358,10 @@ to ship in client-side code. What protects the data is row level security:
   no stage timestamps and no internal notes, because the anon INSERT grant
   covers every column and a hand-crafted request would otherwise be able to
   file an order pre-marked as shipped
+- signed-in staff get SELECT plus a **column-level** UPDATE grant on `status`
+  and `internal_notes` only, so the customer's own order details, their drawn
+  signature, and the stage timestamps are not writable through the API by
+  anyone
 
 The same reasoning covers the dashboard's Clerk publishable key: it ships in
 client-side code, and what protects the orders is the staff RLS policy behind
@@ -319,9 +397,10 @@ Client-side checks are the user experience. The constraints are the guarantee.
   when each stage was reached, but not who moved it. Adding a
   `label_order_events` table written by the same trigger would give you that,
   and is worth doing before more than a couple of people use the dashboard.
-- **Artwork is stored inline.** Logo files are base64 encoded into
-  `logo_file_data` rather than object storage. Fine at current volume; move to
-  Supabase Storage if orders grow or files get larger.
+- **Artwork and signatures are stored inline.** Logo files and the drawn
+  signature are base64 encoded into `logo_file_data` / `signature_data`
+  rather than object storage. Fine at current volume; move to Supabase
+  Storage if orders grow or files get larger.
 - **Uploaded SVGs are untrusted.** SVG is accepted because vector artwork
   reproduces best at label size, but an SVG can carry script. The dashboard
   therefore hands artwork over as a download and never renders it inline, and

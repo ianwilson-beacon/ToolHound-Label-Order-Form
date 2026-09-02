@@ -8,7 +8,7 @@
  *
  * Access: Clerk SSO, then a Beacon / ToolHound email domain check. The check
  * below decides what renders and nothing more — the actual boundary is the RLS
- * policy in supabase/migrations/0003_order_status_and_staff_access.sql, which
+ * policy in supabase/migrations/0006_restrict_staff_reads.sql, which
  * runs on every request whether it came from this page or from curl. Treating
  * the JavaScript as the boundary is how these dashboards leak.
  *
@@ -60,8 +60,14 @@
   // Columns the dashboard reads. logo_file_data is deliberately excluded from
   // the list view: it is up to ~6MB of base64 per row, so pulling it for every
   // order would make the table crawl. It is fetched per order on download.
+  //
+  // signature_data is included, and is the one customer-supplied image this
+  // page does render. That is safe specifically because the database constrains
+  // it to `data:image/png;base64,` under 2MB (migration 0003): a PNG cannot
+  // carry script, where the SVG the artwork column accepts can.
   var LIST_COLUMNS = [
     'id', 'order_ref', 'submitted_at', 'status',
+    'signature_data',
     'po_sent_at', 'production_confirmed_at', 'shipped_at', 'cancelled_at',
     'updated_at', 'internal_notes',
     'company_name', 'contact_name', 'contact_email',
@@ -726,6 +732,17 @@
       ['Current status', STATUS_LABELS[order.status] || order.status],
       ['Last updated', fmtDateTime(order.updated_at)]
     ]);
+
+    if (order.signature_data) {
+      drawer.appendChild(el('div', { class: 'review-block' }, [
+        el('h3', { text: 'Signature' }),
+        el('img', {
+          class: 'sig-view',
+          src: order.signature_data,
+          alt: 'Signature of ' + (order.authorized_name || 'the authorizing customer')
+        })
+      ]));
+    }
 
     if (order.logo_choice === 'custom_logo') {
       var artworkStatus = el('div', { class: 'hint', role: 'status' });

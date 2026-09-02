@@ -10,7 +10,7 @@ const { test, expect } = require('@playwright/test');
  *
  * These tests cover what the page renders. They cannot cover the part that
  * actually protects the data — the RLS policy in
- * 0003_order_status_and_staff_access.sql — because that runs in the database.
+ * 0006_restrict_staff_reads.sql — because that runs in the database.
  */
 
 const DAY = 86400000;
@@ -41,6 +41,8 @@ const ORDERS = [
     country: 'Canada',
     logo_choice: 'custom_logo',
     logo_file_name: 'northgate.svg',
+    signature_data:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
     text_lines: null,
     full_color: 'Yes',
     quantity: 2500,
@@ -70,6 +72,7 @@ const ORDERS = [
     country: 'Canada',
     logo_choice: 'custom_text',
     logo_file_name: null,
+    signature_data: null,
     text_lines: ['ACME', 'TOOL'],
     full_color: 'No',
     quantity: 500,
@@ -99,6 +102,7 @@ const ORDERS = [
     country: 'Canada',
     logo_choice: 'toolhound_logo',
     logo_file_name: null,
+    signature_data: null,
     text_lines: null,
     full_color: 'Yes',
     quantity: 100,
@@ -437,13 +441,19 @@ test('artwork is offered as a download and never rendered in the page', async ({
   await download;
 
   // A customer-uploaded SVG can carry script. Nothing in the page may point an
-  // element at the artwork payload.
-  const inlined = await page.evaluate(() =>
+  // element at the artwork payload, and nothing may render a data URL of any
+  // type other than the PNG signature -- which is safe only because the
+  // database constrains that column to PNG.
+  const offenders = await page.evaluate(() =>
     Array.from(document.querySelectorAll('img,object,embed,iframe,svg use'))
-      .filter((n) => /^data:/.test(n.getAttribute('src') || n.getAttribute('data') || ''))
-      .length
+      .map((n) => n.getAttribute('src') || n.getAttribute('data') || '')
+      .filter((v) => /^data:/.test(v) && !/^data:image\/png;base64,/.test(v))
   );
-  expect(inlined).toBe(0);
+  expect(offenders).toEqual([]);
+
+  // Belt and braces: the artwork payload must not appear in the markup at all.
+  const html = await page.content();
+  expect(html).not.toContain('PHN2Zy8+');
 });
 
 test('the list query never pulls the artwork payload', async ({ page }) => {
@@ -452,5 +462,38 @@ test('the list query never pulls the artwork payload', async ({ page }) => {
 
   const selects = await page.evaluate(() => window.__SELECTS__);
   expect(selects.length).toBeGreaterThan(0);
+  expect(selects.some((s) => String(s).indexOf('logo_file_data') !== -1)).toBe(false);
+});
+
+test('renders the drawn signature, which is PNG-constrained, unlike the artwork', async ({ page }) => {
+  await openDashboard(page);
+
+  await page
+    .locator('tr.row', { hasText: 'THL-AAAA-BBBBBB' })
+    .getByRole('button', { name: 'Details' })
+    .click();
+
+  // The signature is safe to render inline because the database bounds the
+  // column to a PNG data URL and a PNG cannot carry script. The artwork column
+  // accepts SVG, so it stays a download — see the test above.
+  const sig = page.getByRole('dialog').locator('img.sig-view');
+  await expect(sig).toBeVisible();
+  await expect(sig).toHaveAttribute('src', /^data:image\/png;base64,/);
+
+  // An order with no signature shows no signature block.
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page
+    .locator('tr.row', { hasText: 'THL-CCCC-DDDDDD' })
+    .getByRole('button', { name: 'Details' })
+    .click();
+  await expect(page.getByRole('dialog').locator('img.sig-view')).toHaveCount(0);
+});
+
+test('the list query pulls the signature but never the artwork', async ({ page }) => {
+  await openDashboard(page);
+  await expect(page.getByRole('heading', { name: 'Label orders' })).toBeVisible();
+
+  const selects = await page.evaluate(() => window.__SELECTS__);
+  expect(selects.some((s) => String(s).indexOf('signature_data') !== -1)).toBe(true);
   expect(selects.some((s) => String(s).indexOf('logo_file_data') !== -1)).toBe(false);
 });

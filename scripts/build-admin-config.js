@@ -38,7 +38,7 @@ const body = `/**
  * The Clerk publishable key is designed to ship in client-side code, exactly
  * like the Supabase publishable key in config.js. Neither is a secret. What
  * protects the orders is row level security: see
- * supabase/migrations/0003_order_status_and_staff_access.sql.
+ * supabase/migrations/0006_restrict_staff_reads.sql.
  */
 window.TOOLHOUND_ADMIN_CONFIG = {
   clerkPublishableKey: ${clerkKey ? JSON.stringify(clerkKey) : 'null'},

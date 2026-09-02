@@ -1,4 +1,4 @@
--- Order workflow status + staff (Beacon / ToolHound) read-write access.
+-- Order workflow status: the staff-facing pipeline for a submitted order.
 --
 -- Two additions, and one thing deliberately left alone:
 --
@@ -8,18 +8,15 @@
 --      that is what makes cycle time ("how long from received to PO sent")
 --      answerable later, not just "how long outstanding".
 --
---   2. SELECT and a narrow UPDATE for the `authenticated` role, gated on the
---      caller's email domain. Authentication is Clerk SSO handing a JWT to
---      Supabase; the domain check lives here, in SQL, because the client-side
---      gate in the dashboard only decides what renders and does not stop
---      anyone from calling the REST API with a valid token of their own.
+--   2. A narrow UPDATE grant for the `authenticated` role, gated on the same
+--      staff predicate 0006 uses for reads.
 --
 --   3. The `anon` INSERT policy from 0001 stays exactly as it is. The public
 --      order form at the Vercel URL submits with the anon publishable key, so
 --      revoking anon here would take the customer-facing form offline. This
 --      project is not a candidate for an anon lockdown.
 
--- 1. Workflow columns -------------------------------------------------------
+-- Workflow columns -------------------------------------------------------
 alter table public.label_orders
   add column if not exists status                  text not null default 'received',
   add column if not exists po_sent_at              timestamptz,
@@ -46,9 +43,9 @@ alter table public.label_orders
   add constraint label_orders_internal_notes_length
     check (internal_notes is null or length(internal_notes) <= 4000);
 
--- 2. Stage timestamps are derived, never submitted --------------------------
+-- Stage timestamps are derived, never submitted --------------------------
 -- Staff are granted UPDATE on `status` and `internal_notes` only (see the
--- grants below), so the stage timestamps cannot be set or backdated through
+-- grants at the end of this file), so the stage timestamps cannot be set or backdated through
 -- the API at all — this trigger is the only thing that writes them. That also
 -- means the dashboard sends a status change and nothing else.
 
@@ -139,73 +136,10 @@ create trigger label_orders_force_new_defaults
   before insert on public.label_orders
   for each row execute function public.label_orders_force_new_defaults();
 
--- 3. Who counts as staff ----------------------------------------------------
--- Reads the email claim out of the verified JWT. Requests carrying the anon
--- key have no claims and no email, so this is false for the public form.
---
--- Clerk's native Supabase integration puts `role: authenticated` in the
--- session token but does not necessarily include the email address. Add it
--- through Clerk's session-token customization:
---
---     { "email": "{{user.primary_email_address}}" }
---
--- If the claim is missing this function returns false and the dashboard shows
--- no orders — a silent empty table is the expected symptom of that
--- misconfiguration, so decode a live token before assuming the data is gone.
-
-create or replace function public.is_label_order_staff()
-returns boolean
-language plpgsql
-stable
-set search_path = ''
-as $$
-declare
-  claims jsonb;
-  email  text;
-begin
-  -- plpgsql rather than sql for the exception block. A cast failure here would
-  -- otherwise raise out of the RLS policy and fail the whole query, which is a
-  -- worse outcome than denying access: an error is noisy and confusing where a
-  -- false is simply "not staff".
-  begin
-    claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
-  exception when others then
-    return false;
-  end;
-
-  if claims is null or jsonb_typeof(claims) <> 'object' then
-    return false;
-  end if;
-
-  email := lower(coalesce(
-    claims ->> 'email',
-    claims ->> 'email_address',
-    claims ->> 'primary_email_address'
-  ));
-
-  -- Anchored on '@' and on end-of-string, so neither `nottoolhound.com` nor
-  -- `toolhound.com.attacker.example` matches, and neither does a subdomain.
-  return coalesce(email ~ '@(beaconsoftware\.com|toolhound\.com)$', false);
-end;
-$$;
-
-comment on function public.is_label_order_staff() is
-  'True when the verified JWT carries a Beacon or ToolHound email address. The security boundary for the internal orders dashboard — the client-side domain check is user experience only.';
-
-grant execute on function public.is_label_order_staff() to authenticated;
-grant execute on function public.label_orders_status_rank(text) to authenticated;
-
--- 4. Staff policies and grants ----------------------------------------------
+-- Staff write access ---------------------------------------------------------
 -- Scoped to this one table on purpose. A blanket "authenticated full access on
--- every table" policy would hand every user of every app sharing this Clerk
+-- every table" policy would hand every user of every app sharing the Clerk
 -- instance the run of the database.
-
-drop policy if exists "staff read orders" on public.label_orders;
-create policy "staff read orders"
-  on public.label_orders
-  for select
-  to authenticated
-  using (public.is_label_order_staff());
 
 drop policy if exists "staff update order status" on public.label_orders;
 create policy "staff update order status"
@@ -215,9 +149,11 @@ create policy "staff update order status"
   using (public.is_label_order_staff())
   with check (public.is_label_order_staff());
 
--- 0002 revoked these; restore only what the dashboard needs. Column-level
--- UPDATE is what keeps a signed-in user from rewriting the customer's own
--- order details or forging a stage timestamp.
+grant execute on function public.label_orders_status_rank(text) to authenticated;
+
+-- 0002 revoked these; 0004 restored SELECT. Column-level UPDATE is what keeps a
+-- signed-in user from rewriting the customer's own order details, their drawn
+-- signature, or a stage timestamp.
 grant select on public.label_orders to authenticated;
 grant update (status, internal_notes) on public.label_orders to authenticated;
 
@@ -225,7 +161,7 @@ grant update (status, internal_notes) on public.label_orders to authenticated;
 -- customer form, and an order that was filed is a record, not a draft.
 revoke insert, delete on public.label_orders from authenticated;
 
--- 5. Dashboard read patterns -------------------------------------------------
+-- Dashboard read patterns ----------------------------------------------------
 create index if not exists label_orders_status_idx
   on public.label_orders (status, submitted_at desc);
 
