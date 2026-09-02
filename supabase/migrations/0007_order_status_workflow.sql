@@ -137,9 +137,10 @@ create trigger label_orders_force_new_defaults
   for each row execute function public.label_orders_force_new_defaults();
 
 -- Staff write access ---------------------------------------------------------
--- Scoped to this one table on purpose. A blanket "authenticated full access on
--- every table" policy would hand every user of every app sharing the Clerk
--- instance the run of the database.
+-- Scoped to this one table on purpose, and gated on the same staff predicate
+-- 0006 uses for reads. A blanket "authenticated full access on every table"
+-- policy would make every signed-in session, from any sign-up path, an
+-- administrator of this database.
 
 drop policy if exists "staff update order status" on public.label_orders;
 create policy "staff update order status"

@@ -6,21 +6,32 @@
  * -> production confirmed -> shipped; the stage timestamps are written by a
  * database trigger, not by this page.
  *
- * Access: Clerk SSO, then a Beacon / ToolHound email domain check. The check
- * below decides what renders and nothing more — the actual boundary is the RLS
- * policy in supabase/migrations/0006_restrict_staff_reads.sql, which
- * runs on every request whether it came from this page or from curl. Treating
- * the JavaScript as the boundary is how these dashboards leak.
+ * Access: Supabase Auth — Google for Beacon accounts, or an emailed sign-in
+ * link — then a Beacon email domain check. The check below decides what
+ * renders and nothing more. The actual boundary is the RLS policy in
+ * supabase/migrations/0006_restrict_staff_reads.sql, which runs on every
+ * request whether it came from this page or from curl. Treating the JavaScript
+ * as the boundary is how these dashboards leak.
  *
- * No build step beyond admin-config.js, which is generated from the deploy
- * environment because the Clerk key differs between test and live.
+ * That split is why sign-ups being open is not a hole: someone outside Beacon
+ * can obtain a session and still read nothing, because the policy checks the
+ * email claim on the JWT rather than trusting that an account exists.
+ *
+ * No build step: this file is loaded directly by admin.html.
  */
 (function () {
   'use strict';
 
   var CONFIG = window.TOOLHOUND_CONFIG || {};
-  var ADMIN = window.TOOLHOUND_ADMIN_CONFIG || {};
-  var ALLOWED_DOMAINS = ADMIN.allowedDomains || ['beaconsoftware.com'];
+
+  /**
+   * Who may open the dashboard.
+   *
+   * This list only decides what the page renders. Access is granted by
+   * public.is_label_order_staff() in migration 0006, so changing the allowlist
+   * means changing it there too — and that is the one that matters.
+   */
+  var ALLOWED_DOMAINS = ['beaconsoftware.com'];
 
   var STATUSES = [
     { value: 'received', label: 'Received' },
@@ -79,6 +90,7 @@
 
   var state = {
     phase: 'loading',   // loading | config_error | signed_out | denied | ready
+    session: null,
     email: '',
     orders: [],
     filter: 'open',
@@ -89,7 +101,8 @@
     busyRows: {}        // order id -> true while a write is in flight
   };
 
-  var clerk = null;
+  var client = null;
+  var authError = '';
 
   // ---------------------------------------------------------------------------
   // DOM helpers (same shape as the order form's, kept local on purpose so the
@@ -203,69 +216,105 @@
 
   /**
    * Tests inject a stub through `window.__TOOLHOUND_CLERK__`, so the gate and
-   * the table can be exercised without a Clerk instance or network access.
+   * the table can be exercised without Supabase credentials or network access.
    */
-  function resolveClerk() {
-    if (window.__TOOLHOUND_CLERK__) return Promise.resolve(window.__TOOLHOUND_CLERK__);
-    if (!ADMIN.clerkPublishableKey) return Promise.resolve(null);
-    if (!window.Clerk) return Promise.reject(new Error('Clerk failed to load'));
-
-    // Loaded from a plain script tag with no data-clerk-publishable-key
-    // attribute, window.Clerk is the constructor. With the attribute present
-    // it is an already-initialised instance. Handle both so adding the
-    // attribute later does not break this page.
-    var instance = typeof window.Clerk === 'function'
-      ? new window.Clerk(ADMIN.clerkPublishableKey)
-      : window.Clerk;
-
-    return Promise.resolve(instance.load ? instance.load() : null).then(function () {
-      return instance;
-    });
+  /**
+   * The Supabase client handles both auth and data, so the session token is
+   * attached to queries automatically and there is no token plumbing to get
+   * wrong. Tests inject a stub through `window.__TOOLHOUND_CLIENT__`.
+   */
+  function getClient() {
+    if (window.__TOOLHOUND_CLIENT__) return window.__TOOLHOUND_CLIENT__;
+    if (!window.supabase || !CONFIG.supabaseUrl || !CONFIG.supabaseAnonKey) return null;
+    if (!getClient._client) {
+      getClient._client = window.supabase.createClient(
+        CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+    }
+    return getClient._client;
   }
 
   function signedInEmail() {
-    if (!clerk || !clerk.user) return '';
-    var primary = clerk.user.primaryEmailAddress;
-    var address = primary && (primary.emailAddress || primary.email_address);
-    return String(address || '').toLowerCase();
+    return String((state.session && state.session.user && state.session.user.email) || '')
+      .toLowerCase();
   }
 
   function domainAllowed(email) {
     var at = String(email || '').lastIndexOf('@');
     if (at < 1) return false;
     var domain = email.slice(at + 1);
-    // Exact domain match, not a suffix test: `toolhound.com.attacker.example`
-    // and `nottoolhound.com` must both fail.
+    // Exact domain match, not a suffix test: `beaconsoftware.com.attacker.example`
+    // and `notbeaconsoftware.com` must both fail, and so must a subdomain.
     return ALLOWED_DOMAINS.some(function (d) { return domain === d; });
+  }
+
+  function signInWithGoogle() {
+    if (!client) return;
+    client.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + '/admin.html',
+        // Points Google's own account picker at the right domain. A
+        // convenience, not a restriction — it is trivially removable from the
+        // URL, which is why the domain is checked again in the policy.
+        queryParams: { hd: ALLOWED_DOMAINS[0] }
+      }
+    });
+  }
+
+  function sendMagicLink(email, button, statusEl) {
+    if (!client) return;
+    if (!email) {
+      if (statusEl) statusEl.textContent = 'Enter your email address first.';
+      return;
+    }
+    if (button) { button.disabled = true; button.textContent = 'Sending…'; }
+    Promise.resolve(client.auth.signInWithOtp({
+      email: email,
+      options: { emailRedirectTo: window.location.origin + '/admin.html' }
+    })).then(function (res) {
+      if (res && res.error) throw res.error;
+      if (statusEl) {
+        statusEl.textContent = 'Check ' + email + ' for a sign-in link.';
+      }
+    }).catch(function (err) {
+      console.error('Magic link request failed', err);
+      if (statusEl) {
+        statusEl.textContent = 'Could not send the link: '
+          + (err && err.message ? err.message : 'unknown error');
+      }
+    }).then(function () {
+      if (button) { button.disabled = false; button.textContent = 'Email me a sign-in link'; }
+    });
+  }
+
+  function signOut() {
+    if (!client) return;
+    Promise.resolve(client.auth.signOut()).then(function () {
+      state.session = null;
+      applySession();
+    });
+  }
+
+  /**
+   * A sign-in rejected after the provider handed off — the auth.users trigger
+   * from migration 0005 refusing an off-domain Google account, say — comes back
+   * as `#error=...` on the redirect URL rather than a failed promise. Surface
+   * it and drop it from the URL so a reload does not replay it.
+   */
+  function authErrorFromUrl() {
+    var hash = window.location.hash || '';
+    if (hash.indexOf('error=') === -1) return '';
+    var params = new URLSearchParams(hash.replace(/^#/, ''));
+    var desc = params.get('error_description') || params.get('error') || '';
+    history.replaceState(null, '', window.location.pathname);
+    return desc ? decodeURIComponent(desc.replace(/\+/g, ' ')) : 'Sign in failed.';
   }
 
   // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
 
-  /**
-   * The Clerk session token is attached per request through `accessToken`, so
-   * Supabase runs these queries as `authenticated` and the staff RLS policy
-   * applies. With the handoff off the client falls back to the anon key, which
-   * holds no SELECT policy at all — the table comes back empty rather than
-   * unprotected.
-   */
-  function getDb() {
-    if (window.__TOOLHOUND_DB__) return window.__TOOLHOUND_DB__;
-    if (!window.supabase || !CONFIG.supabaseUrl || !CONFIG.supabaseAnonKey) return null;
-    if (!getDb._client) {
-      var options = {};
-      if (ADMIN.useClerkAuth) {
-        options.accessToken = function () {
-          if (!clerk || !clerk.session) return Promise.resolve(null);
-          return Promise.resolve(clerk.session.getToken()).catch(function () { return null; });
-        };
-      }
-      getDb._client = window.supabase.createClient(
-        CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, options);
-    }
-    return getDb._client;
-  }
+  function getDb() { return client || getClient(); }
 
   function loadOrders() {
     var db = getDb();
@@ -286,8 +335,8 @@
     }).catch(function (err) {
       console.error('Failed to load orders', err);
       state.loadError = 'Could not load orders: ' + (err && err.message ? err.message : 'unknown error')
-        + '. If you are signed in with the right account, check that the Clerk session token '
-        + 'carries an email claim — the RLS policy needs it.';
+        + '. If you are signed in with a ' + ALLOWED_DOMAINS[0] + ' account and still '
+        + 'see nothing, migration 0007 may not be applied yet.';
       render();
     });
   }
@@ -446,29 +495,54 @@
   }
 
   function renderConfigError() {
-    renderGate('⚙️', 'Dashboard not configured', [
-      'CLERK_PUBLISHABLE_KEY is not set for this deployment, so sign-in cannot '
-      + 'be initialised and no orders will be shown.',
-      'Set it in the Vercel project environment and redeploy. The customer '
+    renderGate('⚙️', 'Dashboard not available', [
+      'The order system could not be reached, so sign-in cannot be initialised '
+      + 'and no orders will be shown.',
+      'Check the Supabase URL and publishable key in config.js. The customer '
       + 'order form is unaffected.'
     ]);
   }
 
   function renderSignedOut() {
-    var slot = el('div', { class: 'clerk-slot' });
-    renderGate('🔐', 'ToolHound Label Orders', [
-      'Sign in with your ' + ALLOWED_DOMAINS.join(' or ') + ' account.'
-    ], slot);
-    if (clerk && clerk.mountSignIn) {
-      try {
-        clerk.mountSignIn(slot, { routing: 'hash' });
-      } catch (err) {
-        console.error('Could not mount the Clerk sign-in component', err);
-        slot.appendChild(el('p', {
-          text: 'The sign-in form could not be loaded. Reload the page and try again.'
-        }));
-      }
+    var box = el('div', { class: 'gate' }, [
+      el('div', { class: 'gate-icon', text: '🔐' }),
+      el('h1', { text: 'ToolHound Label Orders' }),
+      el('p', { text: 'Sign in with your ' + ALLOWED_DOMAINS.join(' or ') + ' account.' })
+    ]);
+
+    if (authError) {
+      box.appendChild(el('div', { class: 'form-error', role: 'alert', text: authError }));
     }
+
+    box.appendChild(el('div', { class: 'signin-actions' }, [
+      el('button', { class: 'primary', onclick: signInWithGoogle },
+        'Continue with Google')
+    ]));
+
+    box.appendChild(el('div', { class: 'signin-divider', text: 'or' }));
+
+    var emailInput = el('input', {
+      type: 'email',
+      placeholder: 'you@' + ALLOWED_DOMAINS[0],
+      autocomplete: 'username',
+      'aria-label': 'Work email'
+    });
+    var linkStatus = el('div', { class: 'hint', role: 'status' });
+    var linkBtn = el('button', { class: 'ghost' }, 'Email me a sign-in link');
+    linkBtn.addEventListener('click', function () {
+      sendMagicLink(emailInput.value.trim().toLowerCase(), linkBtn, linkStatus);
+    });
+    emailInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        sendMagicLink(emailInput.value.trim().toLowerCase(), linkBtn, linkStatus);
+      }
+    });
+
+    box.appendChild(el('div', { class: 'field' }, [emailInput]));
+    box.appendChild(el('div', { class: 'signin-actions' }, [linkBtn]));
+    box.appendChild(linkStatus);
+
+    clear(root()).appendChild(box);
   }
 
   function renderDenied() {
@@ -483,7 +557,7 @@
     var actions = el('div', { class: 'gate-actions' }, [
       el('button', {
         class: 'primary',
-        onclick: function () { if (clerk && clerk.signOut) clerk.signOut(); }
+        onclick: signOut
       }, 'Sign out')
     ]);
     renderGate('🔒', 'Access restricted', [explain], actions);
@@ -499,6 +573,7 @@
     clear(slot);
     if (state.phase !== 'ready') return;
     slot.appendChild(el('span', { text: state.email }));
+    slot.appendChild(el('button', { class: 'topbar-signout', onclick: signOut }, 'Sign out'));
   }
 
   function statsFor(orders) {
@@ -802,7 +877,7 @@
   }
 
   function applySession() {
-    if (!clerk || !clerk.user) {
+    if (!state.session) {
       state.phase = 'signed_out';
       state.email = '';
       state.orders = [];
@@ -823,29 +898,37 @@
 
   function boot() {
     render();
-    resolveClerk().then(function (instance) {
-      clerk = instance;
-      if (!clerk) {
-        state.phase = 'config_error';
-        render();
-        return;
-      }
-      // Sign-in and sign-out happen inside Clerk's own components, so the page
-      // has to react to the session changing rather than only reading it once.
-      if (clerk.addListener) {
-        clerk.addListener(function () {
-          // Clerk notifies on any resource change, not only sign-in and
-          // sign-out. Reacting to all of them would refetch the whole table
-          // repeatedly, so only an actual identity change is acted on.
-          var email = signedInEmail();
-          if (email !== state.email) applySession();
-        });
-      }
-      applySession();
-    }).catch(function (err) {
-      console.error('Auth initialisation failed', err);
+    authError = authErrorFromUrl();
+    client = getClient();
+    if (!client) {
       state.phase = 'config_error';
       render();
+      return;
+    }
+
+    // Sign-in happens through a redirect (Google) or an emailed link, so the
+    // page has to react to the session appearing rather than only reading it
+    // once at load.
+    if (client.auth.onAuthStateChange) {
+      client.auth.onAuthStateChange(function (event, session) {
+        var next = session || null;
+        var nextEmail = String((next && next.user && next.user.email) || '').toLowerCase();
+        // Supabase fires this for token refreshes as well as sign-in and
+        // sign-out. Reacting to every one of them would refetch the whole
+        // table on the refresh timer, so only an identity change is acted on.
+        var changed = nextEmail !== state.email;
+        state.session = next;
+        if (changed) applySession();
+      });
+    }
+
+    Promise.resolve(client.auth.getSession()).then(function (res) {
+      state.session = (res && res.data && res.data.session) || null;
+      applySession();
+    }).catch(function (err) {
+      console.error('Could not read the session', err);
+      state.session = null;
+      applySession();
     });
   }
 

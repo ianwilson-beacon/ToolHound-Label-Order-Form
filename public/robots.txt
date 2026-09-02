@@ -1,7 +1,7 @@
 # The customer order form is shared as a direct link, not found through search,
 # and the internal dashboard must never be indexed. Note that robots.txt is a
-# request, not access control: /admin is protected by Clerk sign-in and by the
-# row level security policy behind it, not by this file.
+# request, not access control: /admin is protected by the staff sign-in and by
+# the row level security policy behind it, not by this file.
 User-agent: *
 Disallow: /admin
 Disallow: /admin.html

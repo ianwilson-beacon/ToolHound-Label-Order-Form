@@ -28,16 +28,6 @@ The confirmation screen shows the order reference, ToolHound's contact
 information, and offers **Print / save a copy**, which produces a one-page
 authorization record.
 
-## Internal orders view
-
-`admin.html` is a staff-only page for browsing and working submitted orders —
-no service-role key involved. Sign-in is Clerk; access is limited to Beacon
-addresses and enforced in the database. The page is `noindex` and unlinked from
-the public form, but it is still reachable by anyone who has the URL: the
-sign-in and the RLS policy behind it are what protect it, not obscurity.
-
-See **The internal orders dashboard** and **Access** below for the detail.
-
 The domain restriction is enforced twice: `admin.js` hints each provider's
 account picker toward the right domain and re-checks the signed-in email
 before showing any data, but the real boundary is
@@ -70,13 +60,10 @@ public/            Everything that gets deployed
   admin.html       Internal orders dashboard — markup shell
   admin.js         Sign-in gate, order table, status workflow
   admin.css        Dashboard styles (loaded after styles.css)
-  admin-config.js  GENERATED — Clerk key, written by scripts/
   styles.css       Shared styles, including the print stylesheet
   config.js        Supabase URL + publishable key, support phone, contact info
   robots.txt
   toolhound-logo.png
-scripts/
-  build-admin-config.js   Writes public/admin-config.js from the environment
 supabase/
   migrations/      Versioned schema — the source of truth for the database
   functions/
@@ -87,28 +74,24 @@ tests/
   admin.spec.js    Dashboard gate and workflow, end to end (Playwright)
 ```
 
-The only build step is `scripts/build-admin-config.js`, which writes one small
-file of configuration. Everything else in `public/` runs as-is.
+There is no build step. `public/` is a static site that runs as-is.
 
 ## Running locally
 
 ```bash
 npm install
-npm run dev        # generates admin-config.js, serves public/ on :4173
+npm run dev        # serves public/ on http://127.0.0.1:4173
 npm test           # Playwright end-to-end suite
 ```
 
-`npm run dev` without `CLERK_PUBLISHABLE_KEY` set is fine: the order form works
-normally and `/admin.html` renders a "not configured" notice instead of the
-dashboard. To work on the dashboard against a real Clerk instance:
+The tests stub the Supabase client through `window.__TOOLHOUND_DB__` (the
+order form) and `window.__TOOLHOUND_CLIENT__` (the dashboard, which needs
+`.auth` as well as `.from`), so they need no network access and no Supabase
+credentials, and they never write to the real project.
 
-```bash
-CLERK_PUBLISHABLE_KEY=pk_test_... npm run dev
-```
-
-The tests stub the database client through `window.__TOOLHOUND_DB__`, so they
-need no network access and no Supabase credentials, and they never write to the
-real project.
+`/admin.html` served locally will render its sign-in card but cannot complete a
+sign-in, because the OAuth redirect and the emailed link both come back to the
+deployed origin.
 
 If Chromium is not at `/opt/pw-browsers/chromium`, point the suite at yours:
 
@@ -119,31 +102,25 @@ PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm test
 ## Deploying
 
 The site deploys to Vercel as a static directory. `vercel.json` sets `public/`
-as the output directory, runs `scripts/build-admin-config.js` as the build
-command, and adds security headers.
+as the output directory and adds security headers.
 
 There are **two** Content Security Policies, because the two pages need
 different things:
 
 - everything except `/admin*` gets the strict policy, whose only network
   destination is the Supabase project
-- `/admin*` gets that plus what Clerk needs (its Frontend API for session
-  tokens, and an iframe for bot protection during sign-in), and an
+- `/admin*` gets the same policy with `form-action 'self'` instead of `'none'`,
+  because signing in redirects out to the identity provider, plus an
   `X-Robots-Tag: noindex` header
 
 **If the Supabase project ever changes, update the URL in three places:**
 `public/config.js` *and* the `connect-src` directive of *both* policies in
-`vercel.json`. Likewise, if Clerk moves to a custom domain, add it to the
-`/admin*` policy's `script-src`, `connect-src`, and `frame-src`. A mismatch
-fails silently in the browser as a blocked request — if sign-in appears to do
-nothing at all, check the CSP first.
+`vercel.json`. A mismatch fails silently in the browser as a blocked request —
+if sign-in appears to do nothing at all, check the CSP first.
 
-No Vercel environment variable is required: the Clerk publishable key has a
-committed default. `CLERK_PUBLISHABLE_KEY` overrides it, which is how the
-`pk_live_` key gets in for production. Either way, if the key ends up empty the
-build still succeeds and the order form deploys normally; only `/admin`
-degrades, to a "not configured" notice. An unconfigured dashboard must never be
-able to take the customer-facing form offline.
+No environment variables and no build command. The dashboard's only
+configuration is the Supabase URL and publishable key already in
+`public/config.js`.
 
 ## The internal orders dashboard
 
@@ -173,8 +150,10 @@ in response to a status change, and the `authenticated` role holds a
 column-level UPDATE grant on `status` and `internal_notes` only. So the
 dashboard sends a status and nothing else, a timestamp cannot be backdated
 through the API, and a signed-in user cannot rewrite the customer's own order
-details. Moving an order backwards clears the stamps it has given up, so the
-timeline never claims a milestone the order has not reached.
+details or their drawn signature.
+
+Moving an order backwards clears the stamps it has given up, so the timeline
+never claims a milestone the order has not reached.
 
 The order drawer shows the customer's drawn signature inline. That is safe
 where the uploaded artwork is not, and the difference is the database
@@ -189,93 +168,63 @@ the list query, because it is up to ~6MB of base64 per row.
 
 ## Access
 
-Authentication is **Clerk SSO** — the same Clerk instance as the ToolHound
-Command Center (`perfect-lemming-55.clerk.accounts.dev`), so staff get one
-login across both tools — with access limited to **`beaconsoftware.com`**
-addresses.
+Sign-in is **Supabase Auth**, in the same project that stores the orders, so
+there is no second service to administer and nothing to configure per
+deployment. Two ways in:
+
+- **Continue with Google**, hinted at the Beacon domain
+- **An emailed sign-in link** (magic link), which needs no OAuth provider
+  configured at all
+
+Access is limited to **`beaconsoftware.com`** addresses, and the domain is
+checked in two places — only one of which is the security boundary:
+
+- **In the database**, by `public.is_label_order_staff()`, which reads the
+  `email` claim out of the verified JWT and gates the staff RLS policies on
+  `label_orders`. This runs on every request, whether it came from the
+  dashboard or from `curl`. **This is the boundary.**
+- **In `admin.js`**, which decides whether to render the table or an "access
+  restricted" screen. This is user experience. Treating it as the boundary is
+  how these dashboards leak.
+
+Because the check is on the claim rather than on the existence of an account,
+**leaving sign-ups open is not a hole**: someone outside Beacon can obtain a
+session and still read nothing. That is a deliberate property, not luck — it is
+what makes the magic-link path safe to offer.
 
 Beacon only, deliberately. `@toolhound.com` was in the allowlist earlier and
 was removed. Worth knowing: the new-order notification goes to
 `sales@toolhound.com`, so whoever reads that inbox needs a Beacon account to
 open the dashboard link in it. Widening the allowlist again means changing it
-in **two** places that must agree — `ALLOWED_DOMAINS` in
-`scripts/build-admin-config.js` and the regex in
-`public.is_label_order_staff()` (migration `0006`). The second is the one that
-actually grants access.
-
-The domain is checked in two places, and only one of them is the security
-boundary:
-
-- **In the database**, by `public.is_label_order_staff()`, which reads the email
-  claim out of the verified JWT and gates the staff RLS policies on
-  `label_orders`. This runs on every request, whether it came from the
-  dashboard or from `curl`. **This is the boundary.**
-- **In `admin.js`**, which decides whether to render the table or an "access
-  restricted" screen. This is user experience. Treating it as the boundary is
-  how these dashboards leak, because a valid token from any Clerk user would
-  otherwise reach the REST API directly.
-
-Turn on Clerk's restricted sign-ups / domain allowlist as well, so a
-non-allowlisted address cannot get a session at all.
+in **two** places that must agree — `ALLOWED_DOMAINS` in `public/admin.js` and
+the regex in `public.is_label_order_staff()` (migration `0006`). The second is
+the one that actually grants access.
 
 ### Setting it up
 
-1. **Clerk dashboard**
-   - Integrations → enable the native **Supabase** integration, so session
-     tokens carry the `"role": "authenticated"` claim Supabase RLS expects.
-   - Sessions → customize the session token to include the email address:
-     `{ "email": "{{user.primary_email_address}}" }`. **This is the step that
-     is easy to miss.** Without it the RLS policy has no email to check,
-     returns false, and the dashboard shows an empty table with no error.
-   - Social Connections → enable Google and Microsoft if you want those
-     buttons. None of that is in this repo.
-   - Restrictions → set sign-ups to **Restricted** and allowlist
-     `beaconsoftware.com`. Second layer; the database is the boundary.
-2. **Supabase dashboard** → Authentication → Sign In / Up → Third-Party Auth →
-   add **Clerk**, issuer URL `https://perfect-lemming-55.clerk.accounts.dev`.
-3. **Verify while signed in.** Load `/admin`, confirm orders appear, and change
-   one status. If the table is empty, decode
-   `await window.Clerk.session.getToken()` at jwt.io and check for both `role`
-   and `email`.
+1. **Apply migration `0007_order_status_workflow.sql`.** That is the only
+   required step; everything else below is already in place or optional.
+2. **Optional — Google sign-in.** Supabase → Authentication → Sign In /
+   Providers → Google, with a Google OAuth client. If you skip it, the emailed
+   sign-in link still works and needs no provider setup.
+3. **Optional — turn off unused providers.** Microsoft/Azure was for the
+   `@toolhound.com` path that no longer has access. Leaving it enabled is not
+   an exposure, since the policy checks the domain, but there is no reason for
+   an unused sign-up path.
 
-The publishable key is committed (see `scripts/build-admin-config.js`), so
-there is nothing to set in Vercel for the development instance. For production,
-set `CLERK_PUBLISHABLE_KEY` to the `pk_live_` key — the environment overrides
-the committed default. The current key is a **development** instance, so the
-sign-in card shows Clerk's "Development mode" banner.
+`0005_oauth_domain_restriction.sql` rejects off-domain Google sign-ups at
+account creation. It is a useful second layer, but note what it does *not*
+cover: it only restricts the `google` and `azure` providers, so it says nothing
+about magic-link accounts. The policy from `0006` is what covers every path.
 
-Rollback is `SUPABASE_CLERK_AUTH=false` and a redeploy: the client falls back to
-the anon key, which holds no SELECT policy, so the dashboard goes blank rather
-than open.
+### Verifying
 
-### Migrating off Supabase Auth
+Load `/admin` signed in with a Beacon account and confirm orders appear, then
+change one status and check the drawer timeline picks up the new timestamp.
 
-This dashboard previously signed in through Supabase Auth with Google and
-Microsoft providers plus admin-created email accounts. Clerk replaces that.
-Two leftovers to deal with:
-
-- **Turn the Supabase Auth providers off** (Authentication → Sign In /
-  Providers): Google, Microsoft/Azure, and especially Email. Leaving Email
-  enabled with sign-ups on is what made 0004's `using (true)` policy an
-  exposure. It is not an exposure any more, because 0006 checks the domain in
-  the policy, but there is no reason to leave an unused sign-up path open.
-- **`0005_oauth_domain_restriction.sql` stays.** Its trigger on `auth.users`
-  is dead code under Clerk, which never creates `auth.users` rows, but it costs
-  nothing and it is the right guard if a Supabase Auth provider is ever turned
-  back on.
-
-### What this project does *not* do
-
-The Clerk replication guide this was based on ends with a step that drops every
-`anon` policy and revokes anon's privileges. **Do not run that here.** The
-customer order form submits with the anon publishable key, so revoking anon
-takes the public form offline. The `anon` INSERT-only policy is load-bearing
-and stays.
-
-For the same reason the staff policies are scoped to `label_orders` alone,
-rather than the guide's blanket "authenticated full access on every table" —
-that policy, on a Clerk instance shared with another app, would hand every user
-of that app the run of this database.
+An empty table for an account that should have access almost always means
+migration `0007` has not been applied. A sign-in that appears to do nothing is
+usually the CSP — check the console for a blocked request.
 
 ## Notifications
 
@@ -352,10 +301,10 @@ a future one-way mirror job.
 "there is no public sign-up" to make `authenticated` mean "staff". 0005's
 trigger only restricts the `google` and `azure` providers, so any other
 enabled sign-up path fell through, and third-party auth does not create
-`auth.users` rows at all — so the trigger cannot see a Clerk session. 0006
-moves the domain check into the policy, where it runs on every request however
-the session was minted. 0005's trigger stays as a second line of defense if a
-Supabase Auth provider is ever re-enabled.
+`auth.users` rows at all. 0006 moves the domain check into the policy, where it
+runs on every request however the session was minted — including the
+magic-link path, which 0005 says nothing about. 0005's trigger stays as a
+useful second layer on Google sign-ups.
 
 Migration 0007 is written to be re-runnable: every policy, constraint, and
 trigger it creates is dropped first, and the column additions are
@@ -381,10 +330,9 @@ to ship in client-side code. What protects the data is row level security:
   signature, and the stage timestamps are not writable through the API by
   anyone
 
-The same reasoning covers the dashboard's Clerk publishable key: it ships in
-client-side code, and what protects the orders is the staff RLS policy behind
-it. **Never put the `service_role` key in `public/`.** Reading orders needs no
-elevated key — a signed-in staff session is enough.
+**Never put the `service_role` key in `public/`.** Reading orders needs no
+elevated key — a signed-in staff session is enough, and the dashboard uses the
+same publishable key the form does.
 
 ### Validation runs in two places
 

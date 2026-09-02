@@ -3,10 +3,9 @@ const { test, expect } = require('@playwright/test');
 /**
  * End-to-end tests for the internal orders dashboard.
  *
- * Hermetic, like the form suite: `window.__TOOLHOUND_CLERK__` stands in for
- * Clerk and `window.__TOOLHOUND_DB__` for Supabase, and admin-config.js is
- * served from the test rather than the generated file so each case can pick its
- * own Clerk key state. No network, no credentials, nothing written anywhere.
+ * Hermetic, like the form suite: `window.__TOOLHOUND_CLIENT__` stands in for
+ * the Supabase client, serving both its `.auth` and its `.from`. No network,
+ * no credentials, nothing written anywhere.
  *
  * These tests cover what the page renders. They cannot cover the part that
  * actually protects the data — the RLS policy in
@@ -113,51 +112,30 @@ const ORDERS = [
   }
 ];
 
-/** Serve admin-config.js from the test instead of the generated file. */
-async function stubAdminConfig(page, { clerkKey = 'pk_test_fake' } = {}) {
-  await page.route('**/admin-config.js', (route) =>
-    route.fulfill({
-      contentType: 'application/javascript',
-      body: `window.TOOLHOUND_ADMIN_CONFIG = {
-        clerkPublishableKey: ${clerkKey ? JSON.stringify(clerkKey) : 'null'},
-        useClerkAuth: true,
-        allowedDomains: ['beaconsoftware.com']
-      };`
-    })
-  );
-}
-
 async function blockCdns(page) {
   await page.route('https://cdn.jsdelivr.net/**', (route) => route.abort());
   await page.route('https://fonts.googleapis.com/**', (route) => route.abort());
   await page.route('https://fonts.gstatic.com/**', (route) => route.abort());
 }
 
-/** Stub Clerk. `email: null` means signed out. */
-async function stubClerk(page, { email = 'ian.wilson@beaconsoftware.com' } = {}) {
-  await page.addInitScript((email) => {
-    window.__CLERK_CALLS__ = { signOut: 0, mountSignIn: 0 };
-    window.__TOOLHOUND_CLERK__ = {
-      user: email ? { primaryEmailAddress: { emailAddress: email } } : null,
-      session: email ? { getToken: () => Promise.resolve('fake.jwt.token') } : null,
-      load: () => Promise.resolve(),
-      addListener: () => {},
-      mountSignIn: () => { window.__CLERK_CALLS__.mountSignIn++; },
-      signOut: () => { window.__CLERK_CALLS__.signOut++; }
-    };
-  }, email);
-}
-
 /**
- * Stub the Supabase client. Records every write so the tests can assert that
- * the dashboard sends a status change and nothing else — the stage timestamps
- * are the database's job, and staff hold no grant to write them.
+ * Stub the Supabase client: `.auth` for the gate, `.from` for the data. One
+ * object, because that is how the real client works — the session token rides
+ * along on queries automatically, so there is no separate token seam to fake.
+ *
+ * `email: null` means signed out.
  */
-async function stubDb(page, { orders = ORDERS, failUpdate = null } = {}) {
+async function stubClient(page, { email = 'ian.wilson@beaconsoftware.com', orders = ORDERS, failUpdate = null } = {}) {
   await page.addInitScript(
-    ({ orders, failUpdate }) => {
+    ({ email, orders, failUpdate }) => {
+      window.__AUTH_CALLS__ = { signOut: 0, oauth: [], otp: [] };
       window.__UPDATES__ = [];
       window.__SELECTS__ = [];
+      window.__ORDERS__ = orders;
+
+      const session = email
+        ? { user: { email, app_metadata: { provider: 'google' } } }
+        : null;
 
       function result(data) {
         const p = Promise.resolve({ data, error: null });
@@ -168,7 +146,23 @@ async function stubDb(page, { orders = ORDERS, failUpdate = null } = {}) {
         return p;
       }
 
-      window.__TOOLHOUND_DB__ = {
+      window.__TOOLHOUND_CLIENT__ = {
+        auth: {
+          getSession: () => Promise.resolve({ data: { session }, error: null }),
+          onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+          signInWithOAuth: (opts) => {
+            window.__AUTH_CALLS__.oauth.push(opts);
+            return Promise.resolve({ data: {}, error: null });
+          },
+          signInWithOtp: (opts) => {
+            window.__AUTH_CALLS__.otp.push(opts);
+            return Promise.resolve({ data: {}, error: null });
+          },
+          signOut: () => {
+            window.__AUTH_CALLS__.signOut++;
+            return Promise.resolve({ error: null });
+          }
+        },
         from() {
           return {
             select(columns) {
@@ -189,18 +183,12 @@ async function stubDb(page, { orders = ORDERS, failUpdate = null } = {}) {
                 p.select = () => p;
                 return p;
               }
-              const p = {};
+              const ref = {};
               const chain = {
-                eq(_col, id) {
-                  p.id = id;
-                  return chain;
-                },
+                eq(_col, id) { ref.id = id; return chain; },
                 select() {
                   const row = Object.assign(
-                    {},
-                    window.__ORDERS__.find((o) => o.id === p.id),
-                    patch
-                  );
+                    {}, window.__ORDERS__.find((o) => o.id === ref.id), patch);
                   // Mirror the trigger: entering a stage stamps it.
                   if (patch.status === 'po_sent' && !row.po_sent_at) {
                     row.po_sent_at = new Date().toISOString();
@@ -210,8 +198,7 @@ async function stubDb(page, { orders = ORDERS, failUpdate = null } = {}) {
                   }
                   row.updated_at = new Date().toISOString();
                   window.__ORDERS__ = window.__ORDERS__.map((o) =>
-                    o.id === row.id ? row : o
-                  );
+                    o.id === row.id ? row : o);
                   return Promise.resolve({ data: [row], error: null });
                 }
               };
@@ -220,17 +207,14 @@ async function stubDb(page, { orders = ORDERS, failUpdate = null } = {}) {
           };
         }
       };
-      window.__ORDERS__ = orders;
     },
-    { orders, failUpdate }
+    { email, orders, failUpdate }
   );
 }
 
 async function openDashboard(page, opts = {}) {
   await blockCdns(page);
-  await stubAdminConfig(page, opts);
-  await stubClerk(page, opts);
-  await stubDb(page, opts);
+  await stubClient(page, opts);
   await page.goto('/admin.html');
 }
 
@@ -238,14 +222,13 @@ async function openDashboard(page, opts = {}) {
 // The gate
 // ---------------------------------------------------------------------------
 
-test('refuses to render without a Clerk key instead of showing orders', async ({ page }) => {
+test('refuses to render when the order system is unreachable', async ({ page }) => {
   await blockCdns(page);
-  await stubAdminConfig(page, { clerkKey: null });
-  await stubDb(page);
-  // No Clerk stub: this is the misconfigured-deploy case.
+  // No client stub and no Supabase library (the CDN is blocked), so the page
+  // cannot reach the database. It must say so, not show a dashboard.
   await page.goto('/admin.html');
 
-  await expect(page.getByRole('heading', { name: 'Dashboard not configured' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dashboard not available' })).toBeVisible();
   await expect(page.getByText('Northgate Mining')).toHaveCount(0);
 });
 
@@ -253,8 +236,37 @@ test('shows the sign-in gate when nobody is signed in', async ({ page }) => {
   await openDashboard(page, { email: null });
 
   await expect(page.getByRole('heading', { name: 'ToolHound Label Orders' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
   await expect(page.getByText('Northgate Mining')).toHaveCount(0);
-  expect(await page.evaluate(() => window.__CLERK_CALLS__.mountSignIn)).toBe(1);
+});
+
+test('Google sign-in hints the account picker at the Beacon domain', async ({ page }) => {
+  await openDashboard(page, { email: null });
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
+
+  const calls = await page.evaluate(() => window.__AUTH_CALLS__.oauth);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].provider).toBe('google');
+  expect(calls[0].options.queryParams.hd).toBe('beaconsoftware.com');
+});
+
+test('requests a magic link for a typed address', async ({ page }) => {
+  await openDashboard(page, { email: null });
+
+  await page.getByLabel('Work email').fill('Ian.Wilson@BeaconSoftware.com');
+  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+
+  await expect(page.getByText(/Check ian\.wilson@beaconsoftware\.com for a sign-in link/)).toBeVisible();
+  const otp = await page.evaluate(() => window.__AUTH_CALLS__.otp);
+  expect(otp[0].email).toBe('ian.wilson@beaconsoftware.com');
+});
+
+test('a magic link request with no address asks for one', async ({ page }) => {
+  await openDashboard(page, { email: null });
+  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+
+  await expect(page.getByText('Enter your email address first.')).toBeVisible();
+  expect(await page.evaluate(() => window.__AUTH_CALLS__.otp)).toEqual([]);
 });
 
 test('blocks a signed-in user from outside the allowed domains', async ({ page }) => {
@@ -265,7 +277,7 @@ test('blocks a signed-in user from outside the allowed domains', async ({ page }
   await expect(page.getByText('Northgate Mining')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Sign out' }).click();
-  expect(await page.evaluate(() => window.__CLERK_CALLS__.signOut)).toBe(1);
+  expect(await page.evaluate(() => window.__AUTH_CALLS__.signOut)).toBe(1);
 });
 
 test('a lookalike domain is not allowed through', async ({ page }) => {

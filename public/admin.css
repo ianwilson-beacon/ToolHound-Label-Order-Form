@@ -44,7 +44,6 @@
   word-break:break-all;
 }
 .gate .gate-icon{font-size:30px;margin-bottom:12px;}
-.gate .clerk-slot{margin-top:20px;display:flex;justify-content:center;}
 .gate-actions{margin-top:18px;}
 
 /* --- toolbar -------------------------------------------------------------- */
@@ -297,3 +296,49 @@ button.link:hover{color:var(--red-dark);}
   border-radius:9px;
   padding:8px;
 }
+
+/* --- sign-in card extras -------------------------------------------------- */
+.signin-actions{
+  display:flex;
+  justify-content:center;
+  margin-top:14px;
+}
+.signin-divider{
+  font-size:11.5px;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--ink-soft);
+  margin:18px 0 14px;
+}
+.gate .field{text-align:left;margin-bottom:0;}
+.gate .field input{
+  width:100%;
+  padding:11px 12px;
+  border:1.5px solid var(--line);
+  border-radius:9px;
+  font-family:'Inter',sans-serif;
+  font-size:14.5px;
+  color:var(--ink);
+  background:#fff;
+}
+.gate .field input:focus{
+  outline:none;
+  border-color:var(--red);
+  box-shadow:0 0 0 3px rgba(207,56,44,.15);
+}
+.gate .hint{
+  font-size:12.5px;
+  color:var(--ink-soft);
+  margin-top:10px;
+  line-height:1.45;
+}
+.topbar-signout{
+  background:rgba(0,0,0,.18);
+  color:#fff;
+  font-size:12px;
+  font-weight:600;
+  padding:5px 12px;
+  border-radius:999px;
+  margin-left:10px;
+}
+.topbar-signout:hover{background:rgba(0,0,0,.3);}

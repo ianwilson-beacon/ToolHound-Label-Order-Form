@@ -8,8 +8,8 @@
 -- 'azure' off toolhound.com — every other provider falls through unrestricted,
 -- so an enabled email sign-up (Supabase's default) would grant a self-service
 -- account the run of the table. It also does not apply at all to third-party
--- auth, which issues JWTs without creating auth.users rows, which is how the
--- dashboard signs in now.
+-- auth, and it says nothing about the magic-link sign-in the dashboard offers,
+-- which creates an auth.users row through a provider the trigger ignores.
 --
 -- So the domain check moves into the policy, where it is evaluated on every
 -- request regardless of how the session was minted. 0005's trigger stays as a
@@ -58,7 +58,7 @@ end;
 $$;
 
 comment on function public.is_label_order_staff() is
-  'True when the verified JWT carries a Beacon email address. The security boundary for the internal orders dashboard — any client-side domain check is user experience only. Reads the standard `email` claim, which both Supabase Auth and a Clerk session token (with email added to the session token) provide.';
+  'True when the verified JWT carries a Beacon email address. The security boundary for the internal orders dashboard — any client-side domain check is user experience only. Reads the standard `email` claim, which Supabase Auth access tokens carry natively (it is what auth.email() reads).';
 
 grant execute on function public.is_label_order_staff() to authenticated;
 
