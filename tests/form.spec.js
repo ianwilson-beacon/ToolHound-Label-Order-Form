@@ -641,3 +641,95 @@ test.describe('typed signature', () => {
     await expect(page.getByText('Please type your name to authorize this order')).toBeVisible();
   });
 });
+
+/**
+ * Regression: the form and the staff dashboard are the same origin and the same
+ * Supabase project. With default options they share one stored session, so a
+ * staff member signed in to /admin submitted this form as `authenticated` --
+ * a role that holds SELECT and no INSERT -- and every submission failed with
+ * `permission denied for table label_orders` (PostgREST 42501).
+ *
+ * These tests bypass the __TOOLHOUND_DB__ stub on purpose and watch the real
+ * createClient call, because that is where the defect lived.
+ */
+test.describe('the public form submits as anon, never as a signed-in user', () => {
+  async function stubCreateClient(page) {
+    await page.route('https://cdn.jsdelivr.net/**', (route) => route.abort());
+    await page.route('https://fonts.googleapis.com/**', (route) => route.abort());
+    await page.route('https://fonts.gstatic.com/**', (route) => route.abort());
+    await page.addInitScript(() => {
+      // The file-level beforeEach installs __TOOLHOUND_DB__, which app.js
+      // prefers over createClient. Drop it so the real client path runs --
+      // that path is what these tests are about.
+      delete window.__TOOLHOUND_DB__;
+      window.__INSERTED__ = [];
+      window.__CREATE_CLIENT_CALLS__ = [];
+      // Stand in for the CDN bundle, which is blocked above.
+      window.supabase = {
+        createClient(url, key, options) {
+          window.__CREATE_CLIENT_CALLS__.push({ url, key, options });
+          return {
+            from() {
+              return {
+                insert(row) {
+                  window.__INSERTED__.push(row);
+                  return Promise.resolve({ error: null });
+                }
+              };
+            }
+          };
+        }
+      };
+    });
+  }
+
+  test('creates its client with no session read, kept or refreshed',
+    async ({ page }) => {
+      await stubCreateClient(page);
+      await page.goto('/index.html');
+
+      // A staff session left in localStorage by the dashboard, under the key
+      // supabase-js uses by default for this project.
+      await page.evaluate(() => {
+        localStorage.setItem('sb-ayqcteloqdrlemehozzk-auth-token',
+          JSON.stringify({ access_token: 'staff.jwt.value', token_type: 'bearer' }));
+      });
+
+      await fillStep1(page);
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await fillStep2(page);
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+      await fillStep4(page);
+      await page.getByRole('button', { name: 'Submit Order' }).click();
+
+      await expect(page.getByRole('heading', { name: 'Order Submitted' })).toBeVisible();
+
+      const calls = await page.evaluate(() => window.__CREATE_CLIENT_CALLS__);
+      expect(calls).toHaveLength(1);
+      const { key, options } = calls[0];
+      // The publishable key, so PostgREST runs the insert as anon.
+      expect(key).toBe('sb_publishable_DpVxcMatuMmcyqF0B774AQ_y8EuFlp1');
+      expect(options.auth.persistSession).toBe(false);
+      expect(options.auth.autoRefreshToken).toBe(false);
+      expect(options.auth.detectSessionInUrl).toBe(false);
+    });
+
+  test('cannot collide with the dashboard session key', async ({ page }) => {
+    await stubCreateClient(page);
+    await page.goto('/index.html');
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+    await fillStep4(page);
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    const calls = await page.evaluate(() => window.__CREATE_CLIENT_CALLS__);
+    const storageKey = calls[0].options.auth.storageKey;
+    expect(storageKey).toBeTruthy();
+    // Not the default `sb-<ref>-auth-token`, which is what the dashboard uses.
+    expect(storageKey).not.toContain('ayqcteloqdrlemehozzk');
+  });
+});

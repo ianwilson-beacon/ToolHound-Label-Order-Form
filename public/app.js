@@ -1051,13 +1051,34 @@
   /**
    * Resolve the database client. Tests inject a stub via `window.__TOOLHOUND_DB__`
    * so the wizard can be exercised without network access.
+   *
+   * The session options are load-bearing, not tidiness. This form and the staff
+   * dashboard are the same origin and the same Supabase project, so by default
+   * they share one stored session under one localStorage key. A staff member who
+   * had signed in to /admin then submitted this form sent their user JWT, so
+   * PostgREST ran the insert as `authenticated` -- which holds SELECT and no
+   * INSERT by design (0002 revoked it) -- and every submission failed with
+   * `permission denied for table label_orders`. Customers never saw it, because
+   * customers never sign in.
+   *
+   * So the public form is deliberately session-blind: no session is read, kept
+   * or refreshed, and its storage key cannot collide with the dashboard's. It
+   * submits as `anon`, which is the only role the insert policy grants, whoever
+   * happens to be logged in in that browser.
    */
   function getDb() {
     if (window.__TOOLHOUND_DB__) return window.__TOOLHOUND_DB__;
     if (!window.supabase || !CONFIG.supabaseUrl || !CONFIG.supabaseAnonKey) return null;
     if (!getDb._client) {
       getDb._client = window.supabase.createClient(
-        CONFIG.supabaseUrl, CONFIG.supabaseAnonKey);
+        CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            storageKey: 'toolhound-public-form-no-session'
+          }
+        });
     }
     return getDb._client;
   }
