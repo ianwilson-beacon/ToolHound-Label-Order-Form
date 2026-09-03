@@ -342,3 +342,128 @@ button.link:hover{color:var(--red-dark);}
   margin-left:10px;
 }
 .topbar-signout:hover{background:rgba(0,0,0,.3);}
+
+/* --- authorization record ---------------------------------------------------
+   The customer's signed document, reproduced for staff. It reuses the review
+   block markup from styles.css so it stays the same document rather than a
+   second rendering of it. Saving to PDF is the browser's print dialogue, which
+   is why the print rules below hide the dashboard behind it. */
+.record-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(26,26,26,.45);
+  z-index:60;
+  overflow:auto;
+  padding:28px 16px;
+}
+.record-sheet{
+  max-width:760px;
+  margin:0 auto;
+  background:#fff;
+  border-radius:14px;
+  box-shadow:0 18px 50px rgba(0,0,0,.24);
+  overflow:hidden;
+}
+.record-actions{
+  display:flex;
+  gap:10px;
+  justify-content:flex-end;
+  padding:14px 20px;
+  border-bottom:1px solid var(--line);
+  background:var(--paper);
+}
+.record-doc{padding:24px 28px 30px;}
+.record-doc .review-block:first-of-type{margin-top:4px;}
+/* styles.css only dresses .print-header inside @media print, because on the
+   customer form it is never on screen. Here it is, so it needs screen styling
+   -- scoped to the record so the customer form is untouched. */
+.record-doc .print-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  padding-bottom:14px;
+  margin-bottom:18px;
+  border-bottom:2px solid var(--line);
+}
+.record-doc .print-header img{height:34px;width:auto;}
+.record-doc .print-header .meta{
+  font-size:12px;
+  text-align:right;
+  color:var(--ink-soft);
+  line-height:1.6;
+}
+.record-doc .authtext{
+  font-size:12.5px;
+  line-height:1.6;
+  color:var(--ink-soft);
+  background:var(--paper);
+  border-radius:9px;
+  padding:12px 14px;
+  margin-bottom:12px;
+}
+.record-doc .sig-print{max-height:60px;max-width:220px;}
+
+/* --- delete ----------------------------------------------------------------
+   Destructive and unrecoverable, so it is visually separated and the confirm
+   step spells out what goes. */
+.review-block.danger{border-color:#e9c4bf;background:#fdf6f5;}
+.danger-warn{
+  font-size:13px;
+  line-height:1.5;
+  color:#8d2b21;
+  margin-bottom:12px;
+}
+.danger-row{display:flex;gap:10px;flex-wrap:wrap;}
+button.danger{
+  background:#C0392B;
+  color:#fff;
+  border:1.5px solid #C0392B;
+  border-radius:9px;
+  padding:10px 16px;
+  font-family:'Inter',sans-serif;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+}
+button.danger:hover{background:#a5301f;border-color:#a5301f;}
+button.danger[disabled]{opacity:.6;cursor:default;}
+button.danger-outline{
+  background:#fff;
+  color:#C0392B;
+  border:1.5px solid #e9c4bf;
+  border-radius:9px;
+  padding:10px 16px;
+  font-family:'Inter',sans-serif;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+}
+button.danger-outline:hover{border-color:#C0392B;background:#fdf6f5;}
+
+/* Rows are clickable, and reachable by keyboard. */
+.orders tr.row{cursor:pointer;}
+.orders tr.row:focus-visible{
+  outline:2px solid var(--red);
+  outline-offset:-2px;
+}
+
+/* Print only the record, not the dashboard sitting behind it. */
+@media print{
+  body.printing-record .topbar,
+  body.printing-record .admin-wrap > *:not(.record-overlay){display:none !important;}
+  body.printing-record .record-overlay{
+    position:static;
+    inset:auto;
+    background:none;
+    padding:0;
+    overflow:visible;
+  }
+  body.printing-record .record-sheet{
+    max-width:none;
+    box-shadow:none;
+    border-radius:0;
+  }
+  body.printing-record .record-actions{display:none !important;}
+  body.printing-record .record-doc{padding:0;}
+}

@@ -81,9 +81,9 @@
       fullColor: '',
       quantity: '', seqStart: '', instructions: '',
       labelSizeChoice: '', labelWidthIn: '', labelHeightIn: '',
-      shipToPhone: '', attentionName: '', customerPo: '',
+      shipToPhone: '', attentionName: '',
       authorizedName: '', approvalDate: new Date().toISOString().slice(0, 10),
-      signatureData: '', signatureTypedName: ''
+      signatureData: '', signatureTypedName: '', signatureMode: 'type'
     }
   };
 
@@ -192,13 +192,8 @@
   }
 
   function radioField(legend, name, options, selected, onChange, layoutClass) {
-    var wrap = el('fieldset', {
-      class: 'field',
-      style: 'border:none;padding:0;margin:0 0 16px;'
-    });
-    wrap.appendChild(el('legend', {
-      style: 'font-size:13px;font-weight:600;margin-bottom:6px;padding:0;'
-    }, legend));
+    var wrap = el('fieldset', { class: 'field radio-field' });
+    wrap.appendChild(el('legend', {}, legend));
     var group = radioGroup(name, options, selected, onChange);
     if (layoutClass) group.className = layoutClass;
     wrap.appendChild(group);
@@ -321,11 +316,6 @@
     card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:16px;' },
       'Labels ship directly to the address above. A name and phone number help '
       + 'the courier deliver on the first attempt.'));
-
-    add('customerPo', 'Your PO Number', null, 'If your company requires one');
-    card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:4px;' },
-      'Optional. If your purchasing team issues a PO number for this order, '
-      + 'adding it here means it appears on your invoice.'));
 
     card.appendChild(actionBar(null, 'Continue', function () {
       var ok = true;
@@ -489,7 +479,7 @@
       colorHost.innerHTML = '';
       colorField = null;
       if (d.logoChoice !== 'custom_text') {
-        colorField = radioField('Should the logo be printed in full color? *', 'fullColor',
+        colorField = radioField('Should the logo be printed in full colour? *', 'fullColor',
           [{ value: 'Yes', label: 'Yes' }, { value: 'No', label: 'No' }],
           d.fullColor, function (v) {
             d.fullColor = v;
@@ -497,7 +487,7 @@
           }, 'yn');
         colorHost.appendChild(colorField);
         colorHost.appendChild(el('div', { class: 'hint', style: 'margin-top:-4px;margin-bottom:16px;' },
-          'Full-color printing includes an additional surcharge.'));
+          'Full-colour printing includes an additional surcharge.'));
       } else if (!d.fullColor) {
         // No colour question applies to text-only labels; carry a value so
         // the (required) database column is still satisfied.
@@ -509,7 +499,7 @@
     var sizeField = labelSizeField();
     card.appendChild(sizeField.wrap);
 
-    var row = el('div', { class: 'row2' });
+    var row = el('div', { class: 'row2 spec-row' });
     var qtyField = quantityField();
     row.appendChild(qtyField.wrap);
 
@@ -520,81 +510,57 @@
     }, 'text', 'e.g. TSG-0001');
     seqInput.setAttribute('maxlength', String(SEQ_MAX_CHARS));
     var seqField = fieldWrap('Starting Label Number *', seqInput);
-    row.appendChild(seqField);
-    card.appendChild(row);
-
-    card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:16px;' },
+    // The rule belongs under the field it governs. Sitting below both columns
+    // it read as a note about the whole row, quantity included.
+    var seqHint = el('div', { class: 'hint' },
       'The number printed on your first label. Letters, numbers and hyphens, up '
       + 'to ' + SEQ_MAX_CHARS + ' characters, ending in a digit — TSG-0001, '
       + '10000, VOL6001. Leading zeros are kept, so TSG-0001 counts up to '
-      + 'TSG-0500.'));
+      + 'TSG-0500.');
+    seqField.appendChild(seqHint);
+    row.appendChild(seqField);
+    card.appendChild(row);
 
     /**
      * Size drives the line description the printer works from, so it has to be
-     * exact. Two presets cover every order placed to date; "Another size" is
-     * there because a first-time requirement should not be a support call.
+     * exact. These two are the only sizes ever ordered, and a free-text entry
+     * was a way to reach production with a size Metalcraft does not stock --
+     * a first-time requirement is a conversation, not a form field.
      */
     function labelSizeField() {
-      var wrap = el('div', {});
+      var wrap = el('div', { class: 'field' });
       var errMsg = el('div', { class: 'err-msg', role: 'alert' },
         'Please choose a label size');
 
       var group = el('div', { class: 'choice-group' });
-      var customHost = el('div', {});
 
       function paint() {
         group.innerHTML = '';
-        customHost.innerHTML = '';
-
-        LABEL_SIZES.concat([{ value: 'other', label: 'Another size' }])
-          .forEach(function (opt) {
-            var input = el('input', {
-              type: 'radio',
-              name: 'labelSize',
-              value: opt.value,
-              id: 'size_' + opt.value
-            });
-            if (d.labelSizeChoice === opt.value) input.checked = true;
-            var choice = el('label', {
-              class: 'choice' + (d.labelSizeChoice === opt.value ? ' selected' : ''),
-              for: 'size_' + opt.value
-            }, [input, el('span', { class: 'clabel' }, opt.label)]);
-            input.addEventListener('change', function () {
-              d.labelSizeChoice = opt.value;
-              if (opt.value !== 'other') {
-                d.labelWidthIn = opt.w;
-                d.labelHeightIn = opt.h;
-              } else {
-                d.labelWidthIn = '';
-                d.labelHeightIn = '';
-              }
-              errMsg.style.display = 'none';
-              paint();
-            });
-            group.appendChild(choice);
+        LABEL_SIZES.forEach(function (opt) {
+          var input = el('input', {
+            type: 'radio',
+            name: 'labelSize',
+            value: opt.value,
+            id: 'size_' + opt.value
           });
-
-        if (d.labelSizeChoice === 'other') {
-          var dims = el('div', { class: 'row2' });
-          var wIn = textInput(d.labelWidthIn, function (v) { d.labelWidthIn = v; },
-            'text', 'Width, e.g. 2.00');
-          var hIn = textInput(d.labelHeightIn, function (v) { d.labelHeightIn = v; },
-            'text', 'Height, e.g. 1.00');
-          dims.appendChild(fieldWrap('Width (inches) *', wIn));
-          dims.appendChild(fieldWrap('Height (inches) *', hIn));
-          customHost.appendChild(dims);
-          customHost.appendChild(el('div', { class: 'hint' },
-            'A ToolHound representative will confirm this size is available '
-            + 'before the order goes to production.'));
-          wrap._custom = { wIn: wIn, hIn: hIn };
-        } else {
-          wrap._custom = null;
-        }
+          if (d.labelSizeChoice === opt.value) input.checked = true;
+          var choice = el('label', {
+            class: 'choice' + (d.labelSizeChoice === opt.value ? ' selected' : ''),
+            for: 'size_' + opt.value
+          }, [input, el('span', { class: 'clabel' }, opt.label)]);
+          input.addEventListener('change', function () {
+            d.labelSizeChoice = opt.value;
+            d.labelWidthIn = opt.w;
+            d.labelHeightIn = opt.h;
+            errMsg.style.display = 'none';
+            paint();
+          });
+          group.appendChild(choice);
+        });
       }
 
-      wrap.appendChild(el('label', { class: 'field-label' }, 'Label Size *'));
+      wrap.appendChild(el('label', {}, 'Label Size *'));
       wrap.appendChild(group);
-      wrap.appendChild(customHost);
       wrap.appendChild(errMsg);
       paint();
 
@@ -603,16 +569,7 @@
         errMsg: errMsg,
         validate: function () {
           if (!d.labelSizeChoice) { errMsg.style.display = 'block'; return false; }
-          if (d.labelSizeChoice !== 'other') return true;
-          var w = parseFloat(d.labelWidthIn);
-          var h = parseFloat(d.labelHeightIn);
-          var okDims = isFinite(w) && w > 0 && w <= 12 && isFinite(h) && h > 0 && h <= 12;
-          if (wrap._custom) {
-            markErr(wrap._custom.wIn, !(isFinite(w) && w > 0 && w <= 12), '0 to 12 inches');
-            markErr(wrap._custom.hIn, !(isFinite(h) && h > 0 && h <= 12), '0 to 12 inches');
-          }
-          errMsg.style.display = okDims ? 'none' : 'block';
-          return okDims;
+          return true;
         }
       };
     }
@@ -667,8 +624,10 @@
 
     // Spelling out the resulting range makes an off-by-one obvious before the
     // order becomes nonreturnable.
+    // Above the rule, directly under the input: it is the answer to what the
+    // customer just typed, so it should not be the last thing they find.
     var seqPreview = el('div', { class: 'seq-preview' });
-    seqField.appendChild(seqPreview);
+    seqField.insertBefore(seqPreview, seqHint);
 
     function updateSeqPreview() {
       var end = endingSequence(d);
@@ -762,11 +721,10 @@
     b1.appendChild(reviewRow('Company', d.companyName));
     b1.appendChild(reviewRow('Contact', d.contactName));
     b1.appendChild(reviewRow('Email', d.contactEmail));
-    b1.appendChild(reviewRow('Address', [d.address, d.city,
+    b1.appendChild(reviewRow('Shipping Address', [d.address, d.city,
       d.stateProvince + ' ' + d.postalCode, d.country].join(', ')));
     if (d.attentionName) b1.appendChild(reviewRow('Receiving Contact', d.attentionName));
     if (d.shipToPhone) b1.appendChild(reviewRow('Delivery Phone', d.shipToPhone));
-    if (d.customerPo) b1.appendChild(reviewRow('Your PO Number', d.customerPo));
     blocks.push(b1);
 
     var b2 = el('div', { class: 'review-block' });
@@ -776,7 +734,7 @@
     if (d.logoChoice === 'custom_text') {
       b2.appendChild(reviewRow('Custom Text', filledTextLines(d).join(' / ')));
     }
-    b2.appendChild(reviewRow('Full Color', d.fullColor));
+    b2.appendChild(reviewRow('Full Colour', d.fullColor));
     b2.appendChild(reviewRow('Label Size', labelSizeText(d)));
     b2.appendChild(reviewRow('Quantity', d.quantity));
     b2.appendChild(reviewRow('Starting Label Number', String(d.seqStart).trim()));
@@ -803,37 +761,44 @@
   // Step 4 — authorization
   // ---------------------------------------------------------------------------
 
-  var AUTH_TEXT =
-    'I confirm that I have reviewed the label specifications provided above and '
-    + 'that they are accurate. I authorize ToolHound to submit this custom label '
-    + 'order for production based on these specifications. I understand that these '
-    + 'labels are custom manufactured and cannot be returned once the approved '
-    + 'order has been submitted for production.';
+  // Shared with the dashboard through config.js so the signed wording and the
+  // wording staff read back cannot drift apart.
+  var AUTH_TEXT = CONFIG.authText || '';
 
   /**
-   * A small canvas-based signature capture. Pointer events unify mouse,
-   * touch, and stylus input without separate handlers for each.
+   * Signature: typed or drawn, the customer's choice.
+   *
+   * Both paths end at the same place -- a PNG data URL on the canvas -- which
+   * is what makes either storable: the database constrains signature_data to a
+   * PNG, which is also why the dashboard can display it inline where it will
+   * not display an uploaded logo.
+   *
+   * Typing is the default because it works on a mouse, where drawing produces
+   * a scrawl nobody would recognise. Drawing is there for a touchscreen, and
+   * for the customers who consider a typed name not to be a signature.
    */
   function signaturePad(d) {
     var wrap = el('div', { class: 'field' });
-    wrap.appendChild(el('label', { for: 'sigTyped' }, 'Signature *'));
-    wrap.appendChild(el('div', { class: 'hint', style: 'margin-top:0;margin-bottom:8px;' },
-      'Type your full name and it will be rendered as your signature below.'));
+    wrap.appendChild(el('label', {}, 'Signature *'));
 
-    // Rendering the typed name to a canvas, rather than styling a text box,
-    // is what makes this storable: the database constrains signature_data to a
-    // PNG data URL, which is also why the dashboard can safely display it
-    // inline where it will not display an uploaded logo.
+    var modeHint = el('div', { class: 'hint', style: 'margin-top:0;margin-bottom:8px;' });
+
+    // Switching modes clears the signature rather than keeping a stale one:
+    // the record has to match the method the customer actually used.
+    var modeGroup = el('div', { class: 'sig-modes', role: 'group',
+      'aria-label': 'How to sign' });
+
     var canvas = el('canvas', {
       class: 'sigpad',
       width: '600',
       height: '160',
       role: 'img',
-      'aria-label': 'Generated signature'
+      'aria-label': 'Signature'
     });
     var ctx = canvas.getContext('2d');
 
     var typed = '';
+    var hasStrokes = false;
 
     var input = el('input', {
       type: 'text',
@@ -844,7 +809,20 @@
       'aria-label': 'Type your name to sign'
     });
 
-    function render() {
+    var errMsg = el('div', { class: 'err-msg', role: 'alert' });
+
+    function baseline() {
+      // A ruled line under the signature, so a printed copy reads as a
+      // signature block rather than a caption.
+      ctx.strokeStyle = '#C9BFB9';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(24, canvas.height - 34);
+      ctx.lineTo(canvas.width - 24, canvas.height - 34);
+      ctx.stroke();
+    }
+
+    function renderTyped() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!typed.trim()) return;
 
@@ -861,37 +839,142 @@
       } while (size > 20);
 
       ctx.fillText(typed, 30, canvas.height / 2 + size / 3);
-
-      // A ruled line under the name, so a printed copy reads as a signature
-      // block rather than a caption.
-      ctx.strokeStyle = '#C9BFB9';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(24, canvas.height - 34);
-      ctx.lineTo(canvas.width - 24, canvas.height - 34);
-      ctx.stroke();
+      baseline();
     }
 
-    function setTyped(v) {
-      typed = v;
-      render();
-      if (typed.trim()) {
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function signed() {
+      return d.signatureMode === 'draw' ? hasStrokes : !!typed.trim();
+    }
+
+    function clearError() {
+      if (signed()) {
         errMsg.style.display = 'none';
         canvas.classList.remove('err');
       }
     }
 
+    function setTyped(v) {
+      typed = v;
+      renderTyped();
+      clearError();
+    }
+
     input.addEventListener('input', function (e) { setTyped(e.target.value); });
+
+    // --- drawing ------------------------------------------------------------
+    // Pointer events cover mouse, pen and touch in one path, and the canvas
+    // sets touch-action:none in draw mode so a stroke does not scroll the page.
+    var drawing = false;
+
+    function posOf(e) {
+      var r = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) * (canvas.width / r.width),
+        y: (e.clientY - r.top) * (canvas.height / r.height)
+      };
+    }
+
+    function strokeStart(e) {
+      if (d.signatureMode !== 'draw') return;
+      drawing = true;
+      if (!hasStrokes) { clearCanvas(); baseline(); }
+      hasStrokes = true;
+      var p = posOf(e);
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      if (canvas.setPointerCapture && e.pointerId != null) {
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
+      }
+      clearError();
+      e.preventDefault();
+    }
+
+    function strokeMove(e) {
+      if (!drawing) return;
+      var p = posOf(e);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      e.preventDefault();
+    }
+
+    function strokeEnd() { drawing = false; }
+
+    canvas.addEventListener('pointerdown', strokeStart);
+    canvas.addEventListener('pointermove', strokeMove);
+    canvas.addEventListener('pointerup', strokeEnd);
+    canvas.addEventListener('pointerleave', strokeEnd);
+    canvas.addEventListener('pointercancel', strokeEnd);
+
+    // --- mode switching -----------------------------------------------------
+    function paintModes() {
+      modeGroup.innerHTML = '';
+      [
+        { value: 'type', label: 'Type it' },
+        { value: 'draw', label: 'Draw it' }
+      ].forEach(function (m) {
+        var radio = el('input', {
+          type: 'radio',
+          name: 'sigMode',
+          id: 'sigmode_' + m.value,
+          value: m.value
+        });
+        if (d.signatureMode === m.value) radio.checked = true;
+        var choice = el('label', {
+          class: 'choice' + (d.signatureMode === m.value ? ' selected' : ''),
+          for: 'sigmode_' + m.value
+        }, [radio, el('span', { class: 'clabel' }, m.label)]);
+        radio.addEventListener('change', function () { setMode(m.value); });
+        modeGroup.appendChild(choice);
+      });
+    }
+
+    function applyMode() {
+      var draw = d.signatureMode === 'draw';
+      canvas.classList.toggle('draw', draw);
+      canvas.setAttribute('aria-label', draw ? 'Drawn signature' : 'Generated signature');
+      input.style.display = draw ? 'none' : '';
+      modeHint.textContent = draw
+        ? 'Sign in the box below with your mouse, pen or finger.'
+        : 'Type your full name and it will be rendered as your signature below.';
+      errMsg.textContent = draw
+        ? 'Please sign in the box to authorize this order'
+        : 'Please type your name to authorize this order';
+      paintModes();
+    }
+
+    function setMode(mode) {
+      if (d.signatureMode === mode) return;
+      d.signatureMode = mode;
+      // Whichever way round, the old signature goes: keeping it would record a
+      // signature the customer did not produce with the method now selected.
+      typed = '';
+      hasStrokes = false;
+      input.value = '';
+      d.signatureTypedName = '';
+      d.signatureData = '';
+      clearCanvas();
+      applyMode();
+    }
 
     // The script face arrives asynchronously. Without waiting, the first
     // keystrokes render in the fallback and the customer watches their
     // signature change font under them.
     if (document.fonts && document.fonts.load) {
       Promise.resolve(document.fonts.load("64px 'Dancing Script'"))
-        .then(function () { render(); })
+        .then(function () { if (d.signatureMode !== 'draw') renderTyped(); })
         .catch(function () { /* fallback cursive is fine */ });
     }
 
+    wrap.appendChild(modeGroup);
+    wrap.appendChild(modeHint);
     wrap.appendChild(input);
     wrap.appendChild(el('div', { class: 'sigpad-wrap' }, [canvas]));
 
@@ -899,32 +982,40 @@
       type: 'button',
       class: 'ghost sigpad-clear',
       onclick: function () {
+        typed = '';
+        hasStrokes = false;
         input.value = '';
-        setTyped('');
+        clearCanvas();
         d.signatureData = '';
-        input.focus();
+        if (d.signatureMode !== 'draw') input.focus();
       }
     }, 'Clear signature');
     wrap.appendChild(clearBtn);
-
-    var errMsg = el('div', { class: 'err-msg', role: 'alert' },
-      'Please type your name to authorize this order');
     wrap.appendChild(errMsg);
+
+    applyMode();
 
     // Returning here rather than at the top of the step means stepping away
     // and back keeps the signature instead of silently dropping it.
-    if (d.signatureData && d.signatureTypedName) {
-      input.value = d.signatureTypedName;
-      setTyped(d.signatureTypedName);
+    if (d.signatureData) {
+      if (d.signatureMode === 'draw') {
+        var img = new Image();
+        img.onload = function () { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+        img.src = d.signatureData;
+        hasStrokes = true;
+      } else if (d.signatureTypedName) {
+        input.value = d.signatureTypedName;
+        setTyped(d.signatureTypedName);
+      }
     }
 
     return {
       wrap: wrap,
       canvas: canvas,
       input: input,
-      isSigned: function () { return !!typed.trim(); },
+      isSigned: signed,
       commit: function () {
-        d.signatureTypedName = typed.trim();
+        d.signatureTypedName = d.signatureMode === 'draw' ? '' : typed.trim();
         d.signatureData = canvas.toDataURL('image/png');
       },
       errMsg: errMsg
@@ -1040,7 +1131,11 @@
       label_height_in: toDecimal(d.labelHeightIn),
       ship_to_phone: d.shipToPhone.trim() ? d.shipToPhone.trim() : null,
       attention_name: d.attentionName.trim() ? d.attentionName.trim() : null,
-      customer_po: d.customerPo.trim() ? d.customerPo.trim() : null,
+      // The form no longer asks the customer for their own PO number: most do
+      // not have one to hand when they authorize, and the ones that matter
+      // arrive on the customer's PO document anyway. The column stays for the
+      // orders that already carry one and for staff to fill in later.
+      customer_po: null,
       instructions: d.instructions.trim() ? d.instructions.trim() : null,
       authorized_name: d.authorizedName.trim(),
       approval_date: d.approvalDate,

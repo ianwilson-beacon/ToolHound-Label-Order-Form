@@ -208,13 +208,13 @@ test.describe('step 2 validation', () => {
     await expect(page.getByText('Enter at least one line of text')).toBeVisible();
   });
 
-  // Custom text has no logo to colour, so the full-color question — and the
+  // Custom text has no logo to colour, so the full-colour question — and the
   // surcharge it implies — should not appear for that choice.
-  test('hides the full-color question for custom text orders', async ({ page }) => {
+  test('hides the full-colour question for custom text orders', async ({ page }) => {
     await page.getByRole('radio', { name: 'Custom Text' }).check();
-    await expect(page.getByText('Should the logo be printed in full color?')).toBeHidden();
+    await expect(page.getByText('Should the logo be printed in full colour?')).toBeHidden();
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
-    await expect(page.getByText('Should the logo be printed in full color?')).toBeVisible();
+    await expect(page.getByText('Should the logo be printed in full colour?')).toBeVisible();
   });
 
   test('caps each custom text line at 10 characters', async ({ page }) => {
@@ -497,12 +497,11 @@ test.describe('order references', () => {
 });
 
 test.describe('fields the vendor PO needs', () => {
-  test('carries label size, label number, phone, receiving contact and customer PO',
+  test('carries label size, label number, phone and receiving contact',
     async ({ page }) => {
       await fillStep1(page);
       await page.getByLabel('Receiving Contact').fill('Mike Betts');
       await page.getByLabel('Delivery Phone').fill('204-555-0117');
-      await page.getByLabel('Your PO Number').fill('4500620115');
       await page.getByRole('button', { name: 'Continue' }).click();
 
       await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
@@ -532,8 +531,23 @@ test.describe('fields the vendor PO needs', () => {
       expect(row.seq_start).toBe('VOL6001');
       expect(row.ship_to_phone).toBe('204-555-0117');
       expect(row.attention_name).toBe('Mike Betts');
-      expect(row.customer_po).toBe('4500620115');
     });
+
+  // The form no longer asks the customer for their own PO number. The column
+  // stays for orders that already carry one, so submissions send null.
+  test('no longer asks the customer for their PO number', async ({ page }) => {
+    await expect(page.getByLabel('Your PO Number')).toHaveCount(0);
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+    await fillStep4(page);
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    const row = (await page.evaluate(() => window.__INSERTED__))[0];
+    expect(row.customer_po).toBeNull();
+  });
 
   test('the optional fields stay null when left blank', async ({ page }) => {
     await fillStep1(page);
@@ -566,25 +580,14 @@ test.describe('fields the vendor PO needs', () => {
     await expect(page.getByRole('heading', { name: 'Label Specifications' })).toBeVisible();
   });
 
-  test('a custom size must be a plausible number of inches', async ({ page }) => {
+  // Only the two stocked sizes are offered. A free-text size was a way to
+  // reach production with something Metalcraft does not carry.
+  test('offers only the two stocked sizes', async ({ page }) => {
     await fillStep1(page);
     await page.getByRole('button', { name: 'Continue' }).click();
-
-    await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
-    await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-    await page.getByRole('radio', { name: 'Another size' }).check();
-    await page.getByLabel('Width (inches) *').fill('40');
-    await page.getByLabel('Height (inches) *').fill('1');
-    await fillQuantity(page, '500');
-    await page.getByLabel('Starting Label Number *').fill('1');
-    await page.getByRole('button', { name: 'Continue' }).click();
-
-    await expect(page.getByText('0 to 12 inches').first()).toBeVisible();
-
-    await page.getByLabel('Width (inches) *').fill('2');
-    await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.getByRole('heading', { name: 'Review Your Order' })).toBeVisible();
-    await expect(page.getByText('2.00" x 1.00"')).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Another size' })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: '1.50" x 0.75"' })).toHaveCount(1);
+    await expect(page.getByRole('radio', { name: '1.25" x 0.50"' })).toHaveCount(1);
   });
 });
 
@@ -731,5 +734,85 @@ test.describe('the public form submits as anon, never as a signed-in user', () =
     expect(storageKey).toBeTruthy();
     // Not the default `sb-<ref>-auth-token`, which is what the dashboard uses.
     expect(storageKey).not.toContain('ayqcteloqdrlemehozzk');
+  });
+});
+
+/**
+ * Signing: typed or drawn.
+ *
+ * Both paths have to end at a PNG data URL, because that is what the database
+ * constrains signature_data to and what lets the dashboard render it inline.
+ */
+test.describe('signature: type or draw', () => {
+  test('defaults to typing', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await expect(page.getByRole('radio', { name: 'Type it' })).toBeChecked();
+    await expect(page.getByLabel('Type your name to sign')).toBeVisible();
+  });
+
+  test('a drawn signature submits as a PNG', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Authorized Name *').fill('Dana Reyes');
+    await page.getByRole('radio', { name: 'Draw it' }).check();
+    // The typed box gives way to the pad.
+    await expect(page.getByLabel('Type your name to sign')).toBeHidden();
+
+    const pad = page.locator('canvas.sigpad');
+    const box = await pad.boundingBox();
+    await page.mouse.move(box.x + 40, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 120, box.y + box.height / 2 - 20, { steps: 8 });
+    await page.mouse.move(box.x + 200, box.y + box.height / 2 + 10, { steps: 8 });
+    await page.mouse.up();
+
+    await page.getByLabel('I have read and agree').check();
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Order Submitted' })).toBeVisible();
+    const row = (await page.evaluate(() => window.__INSERTED__))[0];
+    expect(row.signature_data).toMatch(/^data:image\/png;base64,/);
+    // A drawn signature has no typed name behind it.
+    expect(row.authorized_name).toBe('Dana Reyes');
+  });
+
+  test('will not submit an untouched drawing pad', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Authorized Name *').fill('Dana Reyes');
+    await page.getByRole('radio', { name: 'Draw it' }).check();
+    await page.getByLabel('I have read and agree').check();
+    await page.getByRole('button', { name: 'Submit Order' }).click();
+
+    await expect(page.getByText('Please sign in the box to authorize this order')).toBeVisible();
+    expect(await page.evaluate(() => window.__INSERTED__.length)).toBe(0);
+  });
+
+  // Switching modes must not carry the old signature over: the record has to
+  // match the method the customer actually used.
+  test('switching modes clears what was there', async ({ page }) => {
+    await fillStep1(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await fillStep2(page);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue to Authorization' }).click();
+
+    await page.getByLabel('Type your name to sign').fill('Dana Reyes');
+    await page.getByRole('radio', { name: 'Draw it' }).check();
+    await page.getByRole('radio', { name: 'Type it' }).check();
+    await expect(page.getByLabel('Type your name to sign')).toHaveValue('');
   });
 });

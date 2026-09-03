@@ -28,6 +28,17 @@ window.TOOLHOUND_CONFIG = {
     website: 'https://www.toolhound.com/'
   },
 
+  // The authorization statement the customer agrees to. It lives here because
+  // both the form and the internal dashboard render it -- the form to collect
+  // the agreement, the dashboard to reproduce the signed record -- and two
+  // copies of a legal sentence is two copies that can drift apart.
+  authText:
+    'I confirm that I have reviewed the label specifications provided above and '
+    + 'that they are accurate. I authorize ToolHound to submit this custom label '
+    + 'order for production based on these specifications. I understand that these '
+    + 'labels are custom manufactured and cannot be returned once the approved '
+    + 'order has been submitted for production.',
+
   // Largest artwork file a customer may attach, in megabytes. The database
   // caps the encoded payload at 6,000,000 characters, which is roughly 4.2MB
   // of binary — keep this at or below that.

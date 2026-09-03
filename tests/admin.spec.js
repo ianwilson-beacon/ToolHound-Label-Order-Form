@@ -125,11 +125,12 @@ async function blockCdns(page) {
  *
  * `email: null` means signed out.
  */
-async function stubClient(page, { email = 'ian.wilson@beaconsoftware.com', orders = ORDERS, failUpdate = null } = {}) {
+async function stubClient(page, { email = 'ian.wilson@beaconsoftware.com', orders = ORDERS, failUpdate = null, failDelete = null } = {}) {
   await page.addInitScript(
-    ({ email, orders, failUpdate }) => {
+    ({ email, orders, failUpdate, failDelete }) => {
       window.__AUTH_CALLS__ = { signOut: 0, oauth: [], otp: [] };
       window.__UPDATES__ = [];
+      window.__DELETES__ = [];
       window.__SELECTS__ = [];
       window.__ORDERS__ = orders;
 
@@ -203,12 +204,25 @@ async function stubClient(page, { email = 'ian.wilson@beaconsoftware.com', order
                 }
               };
               return chain;
+            },
+            delete() {
+              const chain = {
+                eq(_col, id) {
+                  window.__DELETES__.push(id);
+                  if (failDelete) {
+                    return Promise.resolve({ data: null, error: { message: failDelete } });
+                  }
+                  window.__ORDERS__ = window.__ORDERS__.filter((o) => o.id !== id);
+                  return Promise.resolve({ data: null, error: null });
+                }
+              };
+              return chain;
             }
           };
         }
       };
     },
-    { email, orders, failUpdate }
+    { email, orders, failUpdate, failDelete }
   );
 }
 
@@ -559,3 +573,128 @@ test('hands the order over as a file the Ramp PO skill can read', async ({ page 
   expect(order).not.toHaveProperty('signature_data');
   expect(JSON.stringify(payload)).not.toContain('PHN2Zy8+');
 });
+
+// ---------------------------------------------------------------------------
+// Deleting an order
+// ---------------------------------------------------------------------------
+
+test.describe('deleting an order', () => {
+  async function openDrawer(page) {
+    await openDashboard(page);
+    await page.getByRole('button', { name: 'Details' }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }
+
+  // One click must not delete a signed authorization. The confirmation names
+  // the order, because "are you sure?" on the wrong row is how records go.
+  test('takes two steps and names the order', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'Delete this order' }).click();
+
+    await expect(page.getByRole('alert'))
+      .toContainText('Permanently delete THL-AAAA-BBBBBB');
+    await expect(page.getByRole('alert')).toContainText('cannot be undone');
+    // Nothing has happened yet.
+    expect(await page.evaluate(() => window.__DELETES__)).toEqual([]);
+  });
+
+  test('backing out leaves the order alone', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'Delete this order' }).click();
+    await page.getByRole('button', { name: 'Keep it' }).click();
+
+    expect(await page.evaluate(() => window.__DELETES__)).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Delete this order' })).toBeVisible();
+  });
+
+  test('confirming removes the row and closes the drawer', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'Delete this order' }).click();
+    await page.getByRole('button', { name: 'Delete permanently' }).click();
+
+    expect(await page.evaluate(() => window.__DELETES__)).toEqual(['id-old']);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByText('THL-AAAA-BBBBBB')).toHaveCount(0);
+  });
+
+  // Before migration 0010 is applied this comes back as a permission error.
+  // Saying so beats a silently unchanged row.
+  test('reports a refusal instead of pretending it worked', async ({ page }) => {
+    await blockCdns(page);
+    await stubClient(page, { failDelete: 'permission denied for table label_orders' });
+    await page.goto('/admin.html');
+    await page.getByRole('button', { name: 'Details' }).first().click();
+    await page.getByRole('button', { name: 'Delete this order' }).click();
+    await page.getByRole('button', { name: 'Delete permanently' }).click();
+
+    await expect(page.getByText(/permission denied/)).toBeVisible();
+    await expect(page.getByText(/migration 0010/)).toBeVisible();
+    // Still there.
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
+  test('Escape steps back out of the confirmation, then the drawer',
+    async ({ page }) => {
+      await openDrawer(page);
+      await page.getByRole('button', { name: 'Delete this order' }).click();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('button', { name: 'Delete this order' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The authorization record
+// ---------------------------------------------------------------------------
+
+test.describe('authorization record', () => {
+  test('reproduces the signed document, signature included', async ({ page }) => {
+    await openDashboard(page);
+    await page.getByRole('button', { name: 'Details' }).first().click();
+    await page.getByRole('button', { name: 'View / save as PDF' }).click();
+
+    const record = page.getByRole('dialog', { name: /Authorization record/ });
+    await expect(record).toBeVisible();
+    await expect(record).toContainText('THL-AAAA-BBBBBB');
+    await expect(record).toContainText('Northgate Mining');
+    // The label the customer sees, not the database column name.
+    await expect(record).toContainText('Shipping Address');
+    await expect(record).toContainText('Full Colour');
+    // The wording actually agreed to, shared through config.js.
+    await expect(record).toContainText('cannot be returned once the approved order');
+    // The signature is a PNG, which is why it is safe to show inline.
+    await expect(record.locator('img.sig-print')).toHaveAttribute(
+      'src', /^data:image\/png;base64,/);
+  });
+
+  test('closes on Escape', async ({ page }) => {
+    await openDashboard(page);
+    await page.getByRole('button', { name: 'Details' }).first().click();
+    await page.getByRole('button', { name: 'View / save as PDF' }).click();
+    await expect(page.getByRole('dialog', { name: /Authorization record/ })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: /Authorization record/ })).toHaveCount(0);
+    // The drawer underneath survives, so Escape reads as "back", not "quit".
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row interaction
+// ---------------------------------------------------------------------------
+
+test('the whole row opens the order, but the status dropdown still works',
+  async ({ page }) => {
+    await openDashboard(page);
+    await page.locator('tr.row').first().getByText('Northgate Mining').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // Changing status must not also open the drawer over the top of it.
+    await page.locator('tr.row').first().locator('select.status-select')
+      .selectOption('po_sent');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__UPDATES__)).toEqual([{ status: 'po_sent' }]);
+  });

@@ -33,6 +33,10 @@
    */
   var ALLOWED_DOMAINS = ['beaconsoftware.com'];
 
+  // The wording the customer actually agreed to, from config.js -- the same
+  // string the form renders, so the reproduced record is not a paraphrase.
+  var AUTH_TEXT = CONFIG.authText || '';
+
   var STATUSES = [
     { value: 'received', label: 'Received' },
     { value: 'po_sent', label: 'PO sent' },
@@ -98,6 +102,8 @@
     filter: 'open',
     query: '',
     drawerId: null,
+    recordId: null,
+    confirmDeleteId: null,
     loadError: '',
     rowErrors: {},      // order id -> message
     busyRows: {}        // order id -> true while a write is in flight
@@ -394,6 +400,43 @@
   }
 
   function getDb() { return client || getClient(); }
+
+  /**
+   * Delete an order outright.
+   *
+   * This removes a signed customer authorization and there is no undo -- no
+   * archive table, no soft-delete flag. The two-step confirmation in the drawer
+   * is the whole safety net, which is why it names the order and says the word
+   * "permanently" rather than just asking "are you sure?".
+   *
+   * Migration 0010 grants DELETE to staff; before it is applied this fails with
+   * a permission error, which is reported rather than swallowed.
+   */
+  function deleteOrder(order, button, statusEl) {
+    var db = getDb();
+    if (!db) return;
+    if (button) { button.disabled = true; button.textContent = 'Deleting…'; }
+    if (statusEl) statusEl.textContent = '';
+
+    Promise.resolve(db.from('label_orders').delete().eq('id', order.id))
+      .then(function (res) {
+        if (res && res.error) throw res.error;
+        state.orders = state.orders.filter(function (o) { return o.id !== order.id; });
+        state.drawerId = null;
+        state.recordId = null;
+        state.confirmDeleteId = null;
+        render();
+      })
+      .catch(function (err) {
+        console.error('Delete failed', err);
+        if (button) { button.disabled = false; button.textContent = 'Delete permanently'; }
+        if (statusEl) {
+          statusEl.textContent = 'Could not delete this order: '
+            + (err && err.message ? err.message : 'unknown error')
+            + '. If it mentions permissions, migration 0010 is not applied yet.';
+        }
+      });
+  }
 
   function loadOrders() {
     var db = getDb();
@@ -733,6 +776,7 @@
     renderTable();
 
     if (state.drawerId) r.appendChild(renderDrawer());
+    if (state.recordId) r.appendChild(renderRecord());
 
     function renderTable() {
       var host = document.getElementById('tableScroll');
@@ -779,7 +823,25 @@
           setStatus(o, select.value, select);
         });
 
-        tbody.appendChild(el('tr', { class: 'row' }, [
+        // The whole row opens the drawer, not just the Details link -- but not
+        // when the click landed on the status dropdown, which has its own job.
+        var tr = el('tr', {
+          class: 'row',
+          tabindex: '0',
+          'aria-label': 'Order ' + o.order_ref + ', ' + (o.company_name || 'no company')
+        });
+        function openDrawer() { state.drawerId = o.id; render(); }
+        tr.addEventListener('click', function (e) {
+          if (e.target.closest('select,button')) return;
+          openDrawer();
+        });
+        tr.addEventListener('keydown', function (e) {
+          if (e.target !== tr) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          openDrawer();
+        });
+        [
           el('td', { class: 'ref-cell', text: o.order_ref }),
           el('td', { class: 'company-cell' }, [
             document.createTextNode(o.company_name || '—'),
@@ -794,9 +856,10 @@
           el('td', {}, select),
           el('td', {}, el('button', {
             class: 'link',
-            onclick: function () { state.drawerId = o.id; render(); }
+            onclick: openDrawer
           }, 'Details'))
-        ]));
+        ].forEach(function (cell) { tr.appendChild(cell); });
+        tbody.appendChild(tr);
 
         if (state.rowErrors[o.id]) {
           tbody.appendChild(el('tr', {}, el('td', {
@@ -810,11 +873,134 @@
     }
   }
 
+  /**
+   * The authorization record, as the customer sees it.
+   *
+   * Deliberately built from the same review-block markup and print stylesheet
+   * the customer form uses, so what staff read back is the document that was
+   * signed rather than a second rendering of it that could drift. There is no
+   * PDF library here and does not need to be: the browser's own print dialogue
+   * saves to PDF, and that keeps the page free of another CDN dependency.
+   */
+  function renderRecord() {
+    var order = state.orders.filter(function (o) { return o.id === state.recordId; })[0];
+    if (!order) return el('div');
+
+    function close() { state.recordId = null; render(); }
+
+    var overlay = el('div', {
+      class: 'record-overlay',
+      onclick: function (e) { if (e.target === overlay) close(); }
+    });
+
+    var sheet = el('div', {
+      class: 'record-sheet',
+      role: 'dialog',
+      'aria-label': 'Authorization record for ' + order.order_ref
+    });
+
+    sheet.appendChild(el('div', { class: 'record-actions' }, [
+      el('button', {
+        class: 'primary',
+        onclick: function () {
+          // Scoped to the record: the print stylesheet keys off this class so
+          // the dashboard behind it does not come out of the printer too.
+          document.body.classList.add('printing-record');
+          var done = function () {
+            document.body.classList.remove('printing-record');
+            window.removeEventListener('afterprint', done);
+          };
+          window.addEventListener('afterprint', done);
+          window.print();
+          // Safari fires afterprint unreliably; this is the belt to that brace.
+          window.setTimeout(done, 1000);
+        }
+      }, 'Print / save as PDF'),
+      el('button', { class: 'ghost', onclick: close }, 'Close')
+    ]));
+
+    var doc = el('div', { class: 'record-doc' });
+    doc.appendChild(el('div', { class: 'print-header' }, [
+      el('img', { src: 'toolhound-logo.png', alt: 'ToolHound' }),
+      el('div', { class: 'meta' }, [
+        el('div', { style: 'font-weight:700;color:var(--ink);',
+          text: 'Label Order Authorization' }),
+        el('div', { text: 'Reference: ' + order.order_ref }),
+        el('div', { text: 'Submitted: ' + fmtDateTime(order.submitted_at) })
+      ])
+    ]));
+
+    function block(title, pairs) {
+      var b = el('div', { class: 'review-block' }, [el('h3', { text: title })]);
+      pairs.forEach(function (pr) {
+        if (pr[1] == null || pr[1] === '') return;
+        b.appendChild(el('div', { class: 'review-row' }, [
+          el('span', { class: 'k', text: pr[0] }),
+          el('span', { class: 'v', text: String(pr[1]) })
+        ]));
+      });
+      doc.appendChild(b);
+    }
+
+    block('Customer & Shipping', [
+      ['Company', order.company_name],
+      ['Contact', order.contact_name],
+      ['Email', order.contact_email],
+      ['Shipping Address', [order.address, order.city,
+        [order.state_province, order.postal_code].filter(Boolean).join(' '),
+        order.country].filter(Boolean).join(', ')],
+      ['Receiving Contact', order.attention_name],
+      ['Delivery Phone', order.ship_to_phone]
+    ]);
+
+    block('Label Specifications', [
+      ['Logo / Text', labelSpec(order)],
+      ['Logo File', order.logo_file_name],
+      ['Full Colour', order.full_color],
+      ['Label Size', labelSize(order)],
+      ['Quantity', order.quantity],
+      ['Starting Label Number', order.seq_start || order.start_seq],
+      ['Label Number Range', sequenceRange(order)],
+      ['Special Instructions', order.instructions]
+    ]);
+
+    var auth = el('div', { class: 'review-block' }, [el('h3', { text: 'Authorization' })]);
+    auth.appendChild(el('div', { class: 'authtext', text: AUTH_TEXT }));
+    [['Authorized By', order.authorized_name],
+     ['Approval Date', fmtDate(order.approval_date)]].forEach(function (pr) {
+      auth.appendChild(el('div', { class: 'review-row' }, [
+        el('span', { class: 'k', text: pr[0] }),
+        el('span', { class: 'v', text: pr[1] == null || pr[1] === '' ? '—' : String(pr[1]) })
+      ]));
+    });
+    if (order.signature_data) {
+      // Safe to render inline: the database constrains signature_data to a PNG
+      // data URL. Uploaded artwork is not, which is why that only downloads.
+      auth.appendChild(el('div', { class: 'review-row' }, [
+        el('span', { class: 'k', text: 'Signature' }),
+        el('img', {
+          src: order.signature_data,
+          class: 'sig-print',
+          alt: 'Signature of ' + (order.authorized_name || 'the authorizing customer')
+        })
+      ]));
+    }
+    doc.appendChild(auth);
+
+    sheet.appendChild(doc);
+    overlay.appendChild(sheet);
+    return overlay;
+  }
+
   function renderDrawer() {
     var order = state.orders.filter(function (o) { return o.id === state.drawerId; })[0];
     if (!order) return el('div');
 
-    function close() { state.drawerId = null; render(); }
+    function close() {
+      state.drawerId = null;
+      state.confirmDeleteId = null;
+      render();
+    }
 
     var backdrop = el('div', {
       class: 'drawer-backdrop',
@@ -956,6 +1142,52 @@
       notesStatus
     ]));
 
+    drawer.appendChild(el('div', { class: 'review-block' }, [
+      el('h3', { text: 'Authorization record' }),
+      el('button', {
+        class: 'primary',
+        onclick: function () { state.recordId = order.id; render(); }
+      }, 'View / save as PDF'),
+      el('div', {
+        class: 'artwork-note',
+        text: 'The document the customer reviewed and signed, exactly as they '
+          + 'saw it. Print it to save a PDF copy.'
+      })
+    ]));
+
+    // Deleting removes a signed authorization and there is no undo, so it sits
+    // at the bottom, behind two clicks, and names the order in the warning.
+    var delStatus = el('div', { class: 'hint', role: 'status' });
+    var danger = el('div', { class: 'review-block danger' }, [
+      el('h3', { text: 'Delete order' })
+    ]);
+    if (state.confirmDeleteId === order.id) {
+      var confirmBtn = el('button', { class: 'danger' }, 'Delete permanently');
+      confirmBtn.addEventListener('click', function () {
+        deleteOrder(order, confirmBtn, delStatus);
+      });
+      danger.appendChild(el('div', {
+        class: 'danger-warn',
+        role: 'alert',
+        text: 'Permanently delete ' + order.order_ref + ' (' + (order.company_name || 'no company')
+          + ')? This removes the signed authorization and the artwork. It cannot be undone.'
+      }));
+      danger.appendChild(el('div', { class: 'danger-row' }, [
+        confirmBtn,
+        el('button', {
+          class: 'ghost',
+          onclick: function () { state.confirmDeleteId = null; render(); }
+        }, 'Keep it')
+      ]));
+    } else {
+      danger.appendChild(el('button', {
+        class: 'danger-outline',
+        onclick: function () { state.confirmDeleteId = order.id; render(); }
+      }, 'Delete this order'));
+    }
+    danger.appendChild(delStatus);
+    drawer.appendChild(danger);
+
     backdrop.appendChild(drawer);
     return backdrop;
   }
@@ -998,6 +1230,16 @@
 
   function boot() {
     render();
+
+    // Escape closes whatever is on top. Without it the only way out of the
+    // drawer is finding the Close button, which is the kind of small friction
+    // that makes a dashboard tiring to work in.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (state.recordId) { state.recordId = null; render(); return; }
+      if (state.confirmDeleteId) { state.confirmDeleteId = null; render(); return; }
+      if (state.drawerId) { state.drawerId = null; render(); }
+    });
     authError = authErrorFromUrl();
     client = getClient();
     if (!client) {

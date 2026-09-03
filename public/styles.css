@@ -122,15 +122,19 @@
     margin-bottom:6px;
     color:var(--ink);
   }
-  .field .hint{
+  /* Not scoped to .field: plenty of hints sit between fields rather than inside
+     one, and without this they rendered at full body size in near-black, which
+     made them read as instructions rather than as asides. */
+  .hint{
     font-size:12px;
     color:var(--ink-soft);
     margin-top:5px;
-    line-height:1.4;
+    line-height:1.45;
   }
   .field input[type=text],
   .field input[type=email],
   .field input[type=number],
+  .field input[type=tel],
   .field input[type=date],
   .field textarea,
   .field select{
@@ -161,6 +165,20 @@
     display:none;
   }
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+
+  /* A radio group is a stack of large boxes, so it needs more room above and
+     below than a text input does -- at 16px the next question crowds it. */
+  .radio-field{border:none;padding:0;margin:0 0 24px;}
+  .radio-field legend{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin-bottom:9px;
+    padding:0;
+    color:var(--ink);
+  }
+  /* Quantity and Starting Label Number sit directly under the size choices. */
+  .spec-row{margin-top:8px;}
   @media(max-width:480px){.row2{grid-template-columns:1fr;}}
 
   .choice-group{display:flex;flex-direction:column;gap:8px;}
@@ -179,7 +197,15 @@
     border-color:var(--red);
     background:rgba(207,56,44,.06);
   }
-  .choice input{margin:0;accent-color:var(--red);}
+  /* `.field label{display:block}` outranks `.choice` on specificity, so inside a
+     field the choice boxes lost their flex layout -- and with it the gap, which
+     left every radio jammed against its own label. */
+  .field label.choice{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .choice input{margin:0;accent-color:var(--red);flex:none;}
   .choice .clabel{font-size:14.5px;font-weight:500;}
 
   .yn{display:flex;gap:10px;}
@@ -219,9 +245,10 @@
     height:160px;
     display:block;
     background:#fff;
-    touch-action:none;
-    cursor:crosshair;
   }
+  /* Two ways to sign, side by side. */
+  .sig-modes{display:flex;gap:8px;margin-bottom:10px;}
+  .sig-modes .choice{flex:1;justify-content:center;}
   .sigpad.err{border-color:#C0392B;}
   .sigpad-clear{padding:6px 0;font-size:12.5px;margin-top:6px;}
   .sig-print{max-height:60px;max-width:220px;}
@@ -416,8 +443,10 @@ button:focus-visible{
 }
 
 /* ---------------------------------------------------------------------------
-   Typed signature
-   The name is typed and rendered to a canvas, so the canvas is display-only.
+   Signature
+   Typed names render to the canvas, so in that mode the canvas is
+   display-only; in draw mode it becomes the input and has to swallow touch
+   gestures so a stroke does not scroll the page.
    --------------------------------------------------------------------------- */
 .field #sigTyped{
   font-family:'Dancing Script','Segoe Script',cursive;
@@ -427,4 +456,8 @@ button:focus-visible{
 .sigpad{
   cursor:default;
   touch-action:auto;
+}
+.sigpad.draw{
+  cursor:crosshair;
+  touch-action:none;
 }
