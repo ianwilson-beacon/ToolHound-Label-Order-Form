@@ -84,7 +84,7 @@
     'company_name', 'contact_name', 'contact_email',
     'address', 'city', 'state_province', 'postal_code', 'country',
     'logo_choice', 'logo_file_name', 'text_lines', 'full_color',
-    'quantity', 'start_seq', 'seq_prefix', 'instructions',
+    'quantity', 'start_seq', 'seq_start', 'instructions',
     'label_width_in', 'label_height_in',
     'ship_to_phone', 'attention_name', 'customer_po',
     'authorized_name', 'approval_date'
@@ -205,12 +205,25 @@
     return choice;
   }
 
+  /**
+   * The label number is the string the customer typed, and the end of the run
+   * is derived by incrementing its trailing digits at the same width — so
+   * TSG-0001 over 500 labels reads TSG-0500, not TSG-500. Falls back to the
+   * pre-0009 numeric column for older orders.
+   */
   function sequenceRange(order) {
-    var start = Number(order.start_seq);
+    var start = String(order.seq_start || '').trim();
+    if (!start && order.start_seq != null) start = String(order.start_seq);
     var qty = Number(order.quantity);
-    if (!isFinite(start) || !isFinite(qty) || qty < 1) return '—';
-    var pre = order.seq_prefix || '';
-    return pre + start + ' – ' + pre + (start + qty - 1);
+    if (!start || !isFinite(qty) || qty < 1) return '—';
+
+    var m = /(\d+)$/.exec(start);
+    if (!m) return start + ' – —';
+    var digits = m[1];
+    var head = start.slice(0, start.length - digits.length);
+    var end = String(parseInt(digits, 10) + qty - 1);
+    while (end.length < digits.length) end = '0' + end;
+    return start + ' – ' + head + end;
   }
 
   function labelSize(order) {
@@ -337,7 +350,7 @@
     'attention_name', 'ship_to_phone', 'customer_po',
     'logo_choice', 'logo_file_name', 'text_lines', 'full_color',
     'label_width_in', 'label_height_in',
-    'quantity', 'start_seq', 'seq_prefix', 'instructions'
+    'quantity', 'seq_start', 'start_seq', 'instructions'
   ];
 
   /**

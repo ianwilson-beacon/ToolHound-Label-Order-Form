@@ -79,7 +79,7 @@
       logoChoice: '', logoFileName: '', logoFileData: '',
       textLines: ['', '', ''],
       fullColor: '',
-      quantity: '', startSeq: '', seqPrefix: '', instructions: '',
+      quantity: '', seqStart: '', instructions: '',
       labelSizeChoice: '', labelWidthIn: '', labelHeightIn: '',
       shipToPhone: '', attentionName: '', customerPo: '',
       authorizedName: '', approvalDate: new Date().toISOString().slice(0, 10),
@@ -224,11 +224,35 @@
     return isNaN(n) ? null : n;
   }
 
+  /**
+   * A label sequence is whatever the customer types — TSG-0001, 10000,
+   * 1515000 — and the acknowledgement form governs it. The end of the run is
+   * derived rather than asked for twice: take the trailing digits, add
+   * quantity - 1, and re-pad to the same width so TSG-0001 over 500 labels
+   * gives TSG-0500 rather than TSG-500.
+   */
+  var SEQ_MAX_CHARS = 9;
+
+  function sequenceEnd(seqStart, quantity) {
+    var start = String(seqStart == null ? '' : seqStart).trim();
+    var qty = toInt(quantity);
+    if (!start || qty === null || qty < 1) return null;
+
+    var m = /(\d+)$/.exec(start);
+    if (!m) return null;
+
+    var digits = m[1];
+    var head = start.slice(0, start.length - digits.length);
+    var endNum = parseInt(digits, 10) + qty - 1;
+    var endDigits = String(endNum);
+    // Keep the padding the customer chose. Only a run that outgrows its width
+    // gets longer, and that is worth seeing rather than silently truncating.
+    while (endDigits.length < digits.length) endDigits = '0' + endDigits;
+    return head + endDigits;
+  }
+
   function endingSequence(d) {
-    var start = toInt(d.startSeq);
-    var qty = toInt(d.quantity);
-    if (start === null || qty === null || qty < 1) return null;
-    return start + qty - 1;
+    return sequenceEnd(d.seqStart, d.quantity);
   }
 
   /**
@@ -489,26 +513,21 @@
     var qtyField = quantityField();
     row.appendChild(qtyField.wrap);
 
-    var seqInput = textInput(d.startSeq, function (v) {
-      d.startSeq = v; updateSeqPreview();
-    }, 'text', 'e.g. 1');
-    var seqField = fieldWrap('Starting Sequence # *', seqInput);
+    var seqInput = textInput(d.seqStart, function (v) {
+      d.seqStart = v.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+      seqInput.value = d.seqStart;
+      updateSeqPreview();
+    }, 'text', 'e.g. TSG-0001');
+    seqInput.setAttribute('maxlength', String(SEQ_MAX_CHARS));
+    var seqField = fieldWrap('Starting Label Number *', seqInput);
     row.appendChild(seqField);
     card.appendChild(row);
 
-    // Asset tags are not always plain numbers — real orders have run
-    // VOL6001-VOL9000. The prefix is separate from the number so the end of
-    // the range is still arithmetic rather than string guesswork.
-    var prefixInput = textInput(d.seqPrefix, function (v) {
-      d.seqPrefix = v.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-      prefixInput.value = d.seqPrefix;
-      updateSeqPreview();
-    }, 'text', 'e.g. VOL');
-    prefixInput.setAttribute('maxlength', '12');
-    card.appendChild(fieldWrap('Sequence Prefix', prefixInput));
     card.appendChild(el('div', { class: 'hint', style: 'margin-top:-10px;margin-bottom:16px;' },
-      'Optional. Leave blank for plain numbers. Enter VOL and a starting number '
-      + 'of 6001 to label them VOL6001 onwards.'));
+      'The number printed on your first label. Letters, numbers and hyphens, up '
+      + 'to ' + SEQ_MAX_CHARS + ' characters, ending in a digit — TSG-0001, '
+      + '10000, VOL6001. Leading zeros are kept, so TSG-0001 counts up to '
+      + 'TSG-0500.'));
 
     /**
      * Size drives the line description the printer works from, so it has to be
@@ -654,12 +673,11 @@
     function updateSeqPreview() {
       var end = endingSequence(d);
       if (end === null) { seqPreview.textContent = ''; return; }
-      var pre = String(d.seqPrefix || '');
       seqPreview.innerHTML = '';
       seqPreview.appendChild(document.createTextNode('This order will print labels '));
-      seqPreview.appendChild(el('strong', {}, pre + String(toInt(d.startSeq))));
+      seqPreview.appendChild(el('strong', {}, String(d.seqStart).trim()));
       seqPreview.appendChild(document.createTextNode(' through '));
-      seqPreview.appendChild(el('strong', {}, pre + String(end)));
+      seqPreview.appendChild(el('strong', {}, String(end)));
       seqPreview.appendChild(document.createTextNode('.'));
     }
     updateSeqPreview();
@@ -699,10 +717,25 @@
         ok = false;
       } else markErr(qtyTarget, false);
 
-      var seq = toInt(d.startSeq);
-      if (seq === null) { markErr(seqInput, true, 'Enter a starting sequence number'); ok = false; }
-      else if (seq < 0) {
-        markErr(seqInput, true, 'Starting sequence cannot be negative');
+      var seq = String(d.seqStart || '').trim();
+      var seqEnd = sequenceEnd(seq, d.quantity);
+      if (!seq) {
+        markErr(seqInput, true, 'Enter the first label number'); ok = false;
+      } else if (!/^[A-Z0-9][A-Z0-9-]*$/.test(seq) || seq.length > SEQ_MAX_CHARS) {
+        markErr(seqInput, true,
+          'Letters, numbers and hyphens, up to ' + SEQ_MAX_CHARS + ' characters');
+        ok = false;
+      } else if (!/[0-9]$/.test(seq)) {
+        // Without a trailing number there is nothing to count up from, so the
+        // end of the run cannot be worked out at all.
+        markErr(seqInput, true, 'Must end in a number, e.g. TSG-0001');
+        ok = false;
+      } else if (seqEnd && seqEnd.length > SEQ_MAX_CHARS) {
+        // The last label would be longer than a label number can be, which the
+        // customer can only discover here.
+        markErr(seqInput, true,
+          'This many labels would run past ' + SEQ_MAX_CHARS
+          + ' characters (ending ' + seqEnd + '). Start lower or order fewer.');
         ok = false;
       } else markErr(seqInput, false);
 
@@ -746,12 +779,11 @@
     b2.appendChild(reviewRow('Full Color', d.fullColor));
     b2.appendChild(reviewRow('Label Size', labelSizeText(d)));
     b2.appendChild(reviewRow('Quantity', d.quantity));
-    b2.appendChild(reviewRow('Starting Sequence #', (d.seqPrefix || '') + d.startSeq));
+    b2.appendChild(reviewRow('Starting Label Number', String(d.seqStart).trim()));
     var end = endingSequence(d);
     if (end !== null) {
-      var pre = d.seqPrefix || '';
-      b2.appendChild(reviewRow('Sequence Range',
-        pre + toInt(d.startSeq) + ' – ' + pre + end));
+      b2.appendChild(reviewRow('Label Number Range',
+        String(d.seqStart).trim() + ' – ' + end));
     }
     if (d.instructions) b2.appendChild(reviewRow('Special Instructions', d.instructions));
     blocks.push(b2);
@@ -1003,8 +1035,7 @@
       text_lines: d.logoChoice === 'custom_text' ? filledTextLines(d) : null,
       full_color: d.fullColor,
       quantity: toInt(d.quantity),
-      start_seq: toInt(d.startSeq),
-      seq_prefix: d.seqPrefix.trim() ? d.seqPrefix.trim() : null,
+      seq_start: d.seqStart.trim(),
       label_width_in: toDecimal(d.labelWidthIn),
       label_height_in: toDecimal(d.labelHeightIn),
       ship_to_phone: d.shipToPhone.trim() ? d.shipToPhone.trim() : null,

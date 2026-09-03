@@ -32,8 +32,8 @@ When a quote **does** exist — occasionally one is obtained upfront to price a
 customer quote, as on the Shaw order — pass `--rate` and `--quote` and the PO
 totals normally.
 
-The order form supplies label size, sequence prefix, customer PO, delivery
-phone and receiving contact, so a current order needs nothing added. Orders
+The order form supplies label size, the sequence as typed, customer PO,
+delivery phone and receiving contact, so a current order needs nothing added. Orders
 placed before those fields existed have no size; that one is worth saying, and
 it comes off the signed acknowledgement form.
 
@@ -56,13 +56,13 @@ select order_ref, company_name, contact_name, contact_email,
        attention_name, ship_to_phone, customer_po,
        logo_choice, logo_file_name, text_lines, full_color,
        label_width_in, label_height_in,
-       quantity, start_seq, seq_prefix, instructions, status
+       quantity, seq_start, start_seq, instructions, status
 from public.label_orders
 where order_ref in ('THL-...')      -- or: where status = 'received'
-order by start_seq;
+order by seq_start;
 ```
 
-Order by `start_seq` so multiple line items come out in sequence order. Skip
+Order by `seq_start` so multiple line items come out in sequence order. Skip
 `logo_file_data` — it is megabytes of base64 and nothing here needs it.
 
 **2. Build the block.** Point the script at the file either way:
@@ -76,9 +76,9 @@ That is the whole command for a normal order. Add `--rate` and `--quote` only
 in the uncommon case where Metalcraft has already quoted.
 
 It reads the dashboard's wrapped file, a plain array of rows, or a single row
-object. Size, prefix, customer PO, phone and receiving contact all come off
+object. Size, sequence, customer PO, phone and receiving contact all come off
 the order. `--size`,
-`--series-prefix`, `--customer-po` and `--logo-name` are overrides for an older
+`--seq-start`, `--customer-po` and `--logo-name` are overrides for an older
 order that lacks them, or for a correction. Anything still unknown comes out as
 `NEEDS INPUT` with a checklist under the block. Repeatable flags apply per line
 item; give one value and it applies to every line.
@@ -102,8 +102,9 @@ arrived yet.
 You do not need to redo any of this by hand — but knowing it exists means you
 can sanity-check the output:
 
-- **Sequence end** is `start_seq + quantity - 1`. Off-by-one here means the
-  vendor prints the wrong range and the labels are scrap.
+- **Sequence end** increments the trailing digits of `seq_start` by
+  `quantity - 1` and re-pads to the same width. Off-by-one here, or dropped
+  padding, means the vendor prints the wrong range and the labels are scrap.
 - **Contact name** splits into first and last on the last space, so multi-word
   first names survive.
 - **Address** splits into Street and Floor/Suite only on an unambiguous unit
@@ -129,8 +130,8 @@ scrolling past:
 - **Full colour** carries a 10% surcharge on the customer price. Confirm both
   that the customer invoice reflects it and that the vendor rate quoted is the
   full-colour rate.
-- **Sequence starting at 0.** Most runs start at 1. If a customer submitted 0,
-  confirm they meant it before ordering.
+- **Sequence starting at 0.** Most runs start at 1 or 0001. If a customer
+  submitted 0, confirm they meant it before ordering.
 - **NetSuite Customer/Job.** It is whatever the customer typed into Company,
   and it has to match a NetSuite record. Real orders have arrived under the
   wrong entity and under one that did not exist in NetSuite at all — a PCL
@@ -146,10 +147,19 @@ Both now come from the order, and the script prefers the row over a flag:
 
 - **Size** is a choice of `1.50" x 0.75"` or `1.25" x 0.50"` — the only two
   ever ordered — plus a free entry. A size outside those two is flagged.
-- **Sequence prefix** handles alphanumeric tags (`VOL6001 - VOL9000`). The
-  numeric part stays in `start_seq`, so the end of the range is still
-  arithmetic. A prefix supplied by flag rather than by the customer is flagged;
-  one the customer typed is not.
+- **Sequence** is one string, stored exactly as the customer typed it, because
+  the signed acknowledgement form governs it and real forms read `TSG-0001`,
+  `1515000`, `VOL6001`. A prefix-plus-integer model cannot express those: it
+  renders `TSG-0001` as `TSG1`, and the vendor prints the description
+  literally, so that is simply the wrong label.
+
+  The end of the range is still derived rather than asked for twice — take the
+  trailing run of digits, add quantity - 1, re-pad to the same width. `TSG-0001`
+  over 500 gives `TSG-0500`; `10000` over 5000 gives `14999`. A sequence with no
+  trailing digits cannot describe a range and is flagged.
+
+  Older orders that predate this carry the legacy `start_seq` integer; the
+  script falls back to it, and `--seq-start` overrides either.
 
 Label stock is a single constant, `.002" Premium Poly Pro barcode labels`, as
 the Ramp spec names it.

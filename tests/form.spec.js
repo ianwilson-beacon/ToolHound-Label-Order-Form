@@ -73,11 +73,11 @@ async function fillQuantity(page, quantity) {
   }
 }
 
-async function fillStep2(page, { quantity = '500', startSeq = '1000' } = {}) {
+async function fillStep2(page, { quantity = '500', seqStart = '1000' } = {}) {
   await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
   await page.getByRole('radio', { name: 'Yes', exact: true }).check();
   await fillQuantity(page, quantity);
-  await page.getByLabel('Starting Sequence # *').fill(startSeq);
+  await page.getByLabel('Starting Label Number *').fill(seqStart);
   await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
 }
 
@@ -125,15 +125,16 @@ test('completes the full order flow and records the submission', async ({ page }
     logo_choice: 'toolhound_logo',
     full_color: 'Yes',
     quantity: 500,
-    start_seq: 1000,
+    seq_start: '1000',
     authorized_name: 'Dana Reyes',
     logo_file_name: null,
     text_lines: null
   });
-  // Quantity and sequence must reach the database as integers, not strings,
-  // or the integer columns reject them.
+  // Quantity must reach the database as an integer, not a string, or the
+  // integer column rejects it. The sequence is deliberately the opposite: it
+  // goes as text, exactly as typed, so leading zeros survive.
   expect(typeof rows[0].quantity).toBe('number');
-  expect(typeof rows[0].start_seq).toBe('number');
+  expect(typeof rows[0].seq_start).toBe('string');
 });
 
 test.describe('step 1 validation', () => {
@@ -188,7 +189,7 @@ test.describe('step 2 validation', () => {
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
       await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
       await fillQuantity(page, '100');
-      await page.getByLabel('Starting Sequence # *').fill('1');
+      await page.getByLabel('Starting Label Number *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
 
       await expect(page.getByText('Please upload a logo file')).toBeVisible();
@@ -201,7 +202,7 @@ test.describe('step 2 validation', () => {
   test('requires at least one line of custom text', async ({ page }) => {
     await page.getByRole('radio', { name: 'Custom Text' }).check();
     await fillQuantity(page, '100');
-    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByLabel('Starting Label Number *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Enter at least one line of text')).toBeVisible();
@@ -229,27 +230,59 @@ test.describe('step 2 validation', () => {
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
     await page.getByRole('radio', { name: 'Yes', exact: true }).check();
     await fillQuantity(page, '0');
-    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByLabel('Starting Label Number *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Quantity must be at least 1')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Label Specifications' })).toBeVisible();
   });
 
-  test('rejects a negative starting sequence', async ({ page }) => {
+  // The label number is printed literally, so the field only accepts what can
+  // appear on a tag. Hyphens are allowed for TSG-0001, which means a leading
+  // minus survives the as-you-type filter and has to be caught at Continue.
+  test('rejects a label number that does not start with a letter or digit',
+    async ({ page }) => {
+      await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
+      await page.getByRole('radio', { name: 'Yes', exact: true }).check();
+      await fillQuantity(page, '50');
+      await page.getByLabel('Starting Label Number *').fill('-5');
+      await page.getByRole('button', { name: 'Continue' }).click();
+
+      // Scoped to the error: the field's own hint text uses the same wording.
+      await expect(page.locator('.err-msg', {
+        hasText: 'Letters, numbers and hyphens, up to 9 characters'
+      })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Label Specifications' }))
+        .toBeVisible();
+    });
+
+  // Without trailing digits there is nothing to count up from, so the end of
+  // the run cannot be worked out at all.
+  test('requires the label number to end in a digit', async ({ page }) => {
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
     await page.getByRole('radio', { name: 'Yes', exact: true }).check();
     await fillQuantity(page, '50');
-    await page.getByLabel('Starting Sequence # *').fill('-5');
+    await page.getByLabel('Starting Label Number *').fill('TSG-');
     await page.getByRole('button', { name: 'Continue' }).click();
 
-    await expect(page.getByText('Starting sequence cannot be negative')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Label Specifications' })).toBeVisible();
   });
+
+  // Leading zeros are the whole reason the sequence is stored as typed: the
+  // signed acknowledgement form reads TSG-0001, and the vendor prints the
+  // description literally, so TSG-1 would be the wrong label.
+  test('keeps the padding when counting up to the end of the run',
+    async ({ page }) => {
+      await fillQuantity(page, '500');
+      await page.getByLabel('Starting Label Number *').fill('TSG-0001');
+      await expect(page.getByText('This order will print labels TSG-0001 through TSG-0500.'))
+        .toBeVisible();
+    });
 
   test('previews the resulting sequence range as the customer types',
     async ({ page }) => {
       await fillQuantity(page, '250');
-      await page.getByLabel('Starting Sequence # *').fill('500');
+      await page.getByLabel('Starting Label Number *').fill('500');
       await expect(page.getByText('This order will print labels 500 through 749.'))
         .toBeVisible();
     });
@@ -280,7 +313,7 @@ test.describe('step 2 validation', () => {
       await page.getByRole('radio', { name: 'Yes', exact: true }).check();
       await page.getByRole('radio', { name: '1.50" x 0.75"' }).check();
       await fillQuantity(page, '100');
-      await page.getByLabel('Starting Sequence # *').fill('1');
+      await page.getByLabel('Starting Label Number *').fill('1');
       await page.getByRole('button', { name: 'Continue' }).click();
       await page.getByRole('button', { name: 'Continue to Authorization' }).click();
       await fillStep4(page);
@@ -303,7 +336,7 @@ test.describe('custom text orders', () => {
     await page.getByLabel('Text line 3').fill('YARD 4');
     await page.getByRole('radio', { name: '1.25" x 0.50"' }).check();
     await fillQuantity(page, '75');
-    await page.getByLabel('Starting Sequence # *').fill('0');
+    await page.getByLabel('Starting Label Number *').fill('0');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('ACME / YARD 4')).toBeVisible();
@@ -464,7 +497,7 @@ test.describe('order references', () => {
 });
 
 test.describe('fields the vendor PO needs', () => {
-  test('carries label size, sequence prefix, phone, receiving contact and customer PO',
+  test('carries label size, label number, phone, receiving contact and customer PO',
     async ({ page }) => {
       await fillStep1(page);
       await page.getByLabel('Receiving Contact').fill('Mike Betts');
@@ -476,12 +509,11 @@ test.describe('fields the vendor PO needs', () => {
       await page.getByRole('radio', { name: 'No', exact: true }).check();
       await page.getByRole('radio', { name: '1.25" x 0.50"' }).check();
       await fillQuantity(page, '3000');
-      await page.getByLabel('Starting Sequence # *').fill('6001');
-      await page.getByLabel('Sequence Prefix').fill('vol');
+      await page.getByLabel('Starting Label Number *').fill('vol6001');
 
-      // The prefix is what gets printed on the tag, so it is upper-cased as
-      // typed rather than silently at submit time.
-      await expect(page.getByLabel('Sequence Prefix')).toHaveValue('VOL');
+      // What gets printed on the tag is what the customer sees while typing,
+      // so it is upper-cased in the field rather than silently at submit time.
+      await expect(page.getByLabel('Starting Label Number *')).toHaveValue('VOL6001');
       // Scoped to the preview: the field's own hint text also names VOL6001.
       await expect(page.locator('.seq-preview')).toContainText('VOL6001');
       await expect(page.locator('.seq-preview')).toContainText('VOL9000');
@@ -497,8 +529,7 @@ test.describe('fields the vendor PO needs', () => {
       const row = (await page.evaluate(() => window.__INSERTED__))[0];
       expect(row.label_width_in).toBe(1.25);
       expect(row.label_height_in).toBe(0.5);
-      expect(row.seq_prefix).toBe('VOL');
-      expect(row.start_seq).toBe(6001);
+      expect(row.seq_start).toBe('VOL6001');
       expect(row.ship_to_phone).toBe('204-555-0117');
       expect(row.attention_name).toBe('Mike Betts');
       expect(row.customer_po).toBe('4500620115');
@@ -516,7 +547,6 @@ test.describe('fields the vendor PO needs', () => {
     const row = (await page.evaluate(() => window.__INSERTED__))[0];
     // Null rather than empty string: the columns are nullable so "not asked"
     // stays distinguishable from "answered with nothing".
-    expect(row.seq_prefix).toBeNull();
     expect(row.ship_to_phone).toBeNull();
     expect(row.attention_name).toBeNull();
     expect(row.customer_po).toBeNull();
@@ -529,7 +559,7 @@ test.describe('fields the vendor PO needs', () => {
     await page.getByRole('radio', { name: 'ToolHound Logo' }).check();
     await page.getByRole('radio', { name: 'Yes', exact: true }).check();
     await fillQuantity(page, '500');
-    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByLabel('Starting Label Number *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Please choose a label size')).toBeVisible();
@@ -546,7 +576,7 @@ test.describe('fields the vendor PO needs', () => {
     await page.getByLabel('Width (inches) *').fill('40');
     await page.getByLabel('Height (inches) *').fill('1');
     await fillQuantity(page, '500');
-    await page.getByLabel('Starting Sequence # *').fill('1');
+    await page.getByLabel('Starting Label Number *').fill('1');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('0 to 12 inches').first()).toBeVisible();

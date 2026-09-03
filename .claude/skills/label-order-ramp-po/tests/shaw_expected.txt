@@ -15,7 +15,7 @@ Ship-to city: Beaumont
 Ship-to state: Texas
 Ship-to zip: 77701
 Currency: USD
-Line 1 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: 1; SEQUENCE END: 500
+Line 1 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: TSG-0001; SEQUENCE END: TSG-0500
 Line 1 quantity: 500
 Line 1 rate: 0.83124
 Line 1 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware
@@ -24,7 +24,7 @@ Line 1 NetSuite Classification: Non-Recurring Revenue - Hardware
 Line 1 NetSuite Division: (blank)
 Line 1 NetSuite Customer/Job: The Shaw Group
 Line 1 Billable?: No
-Line 2 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); Shaw logo (black & white); SEQUENCE START: 501; SEQUENCE END: 5500
+Line 2 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); Shaw logo (black & white); SEQUENCE START: TSG-0501; SEQUENCE END: TSG-5500
 Line 2 quantity: 5000
 Line 2 rate: 0.13635
 Line 2 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware

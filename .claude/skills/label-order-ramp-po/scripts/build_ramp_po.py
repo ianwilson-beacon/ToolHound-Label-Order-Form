@@ -141,6 +141,66 @@ def parse_size(size):
     return f"{float(nums[0]):.2f}", f"{float(nums[1]):.2f}"
 
 
+def sequence_bounds(row, flags, override=None):
+    """
+    Resolve the printed label range, which the acknowledgement form governs.
+
+    The sequence is whatever the customer typed -- TSG-0001, 10000, 1515000 --
+    and the end is derived from it: trailing digits plus quantity - 1, re-padded
+    to the same width. That padding is the point. TSG-0001 over 500 labels is
+    TSG-0500, not TSG-500, and the vendor prints the description literally.
+
+    Falls back to the pre-0009 columns for orders submitted before the sequence
+    became a string.
+    """
+    start = str(override or row.get("seq_start") or "").strip()
+    if override:
+        # A sequence supplied by flag rather than by the customer is worth a
+        # second look; one the customer typed into the form is not.
+        flags.append(
+            f"{row.get('order_ref')}: label number {start!r} came from the "
+            "command line, not from the order. Confirm it matches the signed "
+            "acknowledgement form."
+        )
+    if not start:
+        legacy_num = row.get("start_seq")
+        if legacy_num is None:
+            return NEEDS_INPUT, NEEDS_INPUT
+        start = f"{row.get('seq_prefix') or ''}{legacy_num}"
+
+    qty = row.get("quantity")
+    if not isinstance(qty, int) or qty < 1:
+        return start, NEEDS_INPUT
+
+    m = re.search(r"(\d+)$", start)
+    if not m:
+        flags.append(
+            f"{row.get('order_ref')}: label number {start!r} does not end in a "
+            "digit, so the end of the run cannot be worked out. Take the range "
+            "off the signed acknowledgement form."
+        )
+        return start, NEEDS_INPUT
+
+    digits = m.group(1)
+    head = start[: len(start) - len(digits)]
+    end_num = int(digits) + qty - 1
+    end = head + str(end_num).zfill(len(digits))
+
+    if len(end) > len(start):
+        flags.append(
+            f"{row.get('order_ref')}: the run outgrows its padding — {start} over "
+            f"{qty:,} labels ends at {end}, which is longer than the number it "
+            "started from. Confirm against the acknowledgement form; the label "
+            "number has a character limit."
+        )
+    if int(digits) == 0:
+        flags.append(
+            f"{row.get('order_ref')}: the run starts at {start}, i.e. zero. Most "
+            "start at 1 — confirm the customer meant it."
+        )
+    return start, end
+
+
 def label_content(row, flags, logo_name=None):
     """
     Render the middle segment of the line description from the logo choice.
@@ -213,10 +273,8 @@ def row_size(row):
     return f"{w:.2f}x{h:.2f}" if w > 0 and h > 0 else None
 
 
-def line_description(row, size, flags, logo_name=None, series_prefix=None):
+def line_description(row, size, flags, logo_name=None, seq_start=None):
     size = size or row_size(row)
-    if series_prefix is None:
-        series_prefix = (row.get("seq_prefix") or "").strip() or None
     parsed = parse_size(size)
     if parsed:
         dims = f'({parsed[0]}" x {parsed[1]}")'
@@ -234,33 +292,11 @@ def line_description(row, size, flags, logo_name=None, series_prefix=None):
             "signed acknowledgement form and re-run with --size."
         )
 
-    qty = row.get("quantity")
-    start = row.get("start_seq")
-    if series_prefix and not (row.get("seq_prefix") or "").strip():
-        # A prefix supplied by flag rather than by the customer is worth a
-        # second look; one the customer typed into the form is not.
-        flags.append(
-            f"{row.get('order_ref')}: series prefix {series_prefix!r} came from the "
-            "command line, not from the order. Confirm it matches what the "
-            "customer asked for."
-        )
-    if isinstance(qty, int) and isinstance(start, int) and qty > 0:
-        end = start + qty - 1
-        if start == 0:
-            flags.append(
-                f"{row.get('order_ref')}: sequence starts at 0, so the range is "
-                f"0–{end} rather than 1–{qty}. Confirm the customer meant 0 — most "
-                "runs start at 1."
-            )
-    else:
-        end = NEEDS_INPUT
-
+    start, end = sequence_bounds(row, flags, seq_start)
     content = label_content(row, flags, logo_name)
-    s_start = f"{series_prefix}{start}" if series_prefix else start
-    s_end = f"{series_prefix}{end}" if series_prefix and end != NEEDS_INPUT else end
     return (
         f"{LABEL_STOCK} {dims}; {content}; "
-        f"SEQUENCE START: {s_start}; SEQUENCE END: {s_end}"
+        f"SEQUENCE START: {start}; SEQUENCE END: {end}"
     )
 
 
@@ -336,7 +372,7 @@ def build(rows, opts):
 
         out.append(
             f"Line {i} description: "
-            f"{line_description(row, size, flags, opts.logo_name_for(ref, i), opts.series_prefix_for(ref, i))}"
+            f"{line_description(row, size, flags, opts.logo_name_for(ref, i), opts.seq_start_for(ref, i))}"
         )
         out.append(f"Line {i} quantity: {qty if qty is not None else NEEDS_INPUT}")
         if rate is None:
@@ -413,7 +449,7 @@ class Opts:
         self.customer_po = args.customer_po
         self._sizes = self._index(args.size)
         self._logo_names = self._index(args.logo_name)
-        self._prefixes = self._index(args.series_prefix)
+        self._seq_starts = self._index(args.seq_start)
         self._rates = self._index(args.rate, cast=float)
 
     @staticmethod
@@ -436,8 +472,8 @@ class Opts:
     def logo_name_for(self, ref, i):
         return self._pick(self._logo_names, i)
 
-    def series_prefix_for(self, ref, i):
-        return self._pick(self._prefixes, i)
+    def seq_start_for(self, ref, i):
+        return self._pick(self._seq_starts, i)
 
     @staticmethod
     def _pick(values, i):
@@ -456,8 +492,11 @@ def main():
                    help='Label size, e.g. 1.50x0.75. Repeat per line item.')
     p.add_argument("--rate", action="append",
                    help="Vendor cost per label. Repeat per line item.")
-    p.add_argument("--series-prefix", dest="series_prefix", action="append",
-                   help='Alphanumeric sequence prefix, e.g. VOL. Repeat per line item.')
+    p.add_argument("--seq-start", dest="seq_start", action="append",
+                   help="Starting label number as the acknowledgement form has "
+                        'it, e.g. TSG-0001. Overrides the order; use it for an '
+                        "order predating the field, or to correct one. "
+                        "Repeat per line item.")
     p.add_argument("--logo-name", dest="logo_name", action="append",
                    help='Customer name as it should read on the label, e.g. "Shaw". '
                         "Defaults to the Company field. Repeat per line item.")

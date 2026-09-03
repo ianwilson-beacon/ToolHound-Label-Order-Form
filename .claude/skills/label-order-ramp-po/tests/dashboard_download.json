@@ -19,7 +19,7 @@
       "logo_choice": "custom_text", "logo_file_name": null,
       "text_lines": ["AECON"], "full_color": "No",
       "label_width_in": "1.25", "label_height_in": "0.50",
-      "quantity": 3000, "start_seq": 6001, "seq_prefix": "VOL", "instructions": null
+      "quantity": 3000, "seq_start": "VOL6001", "instructions": null
     }
   ]
 }

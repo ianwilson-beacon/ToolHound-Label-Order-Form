@@ -126,4 +126,62 @@ for want in "Vendor: Metalcraft USD" "Currency: USD" "Entity: ToolHound Inc."; d
     || { echo "FAIL  fixed value missing: $want"; fail=1; }
 done
 
+# The sequence is the reason 0009 exists: the acknowledgement form governs it,
+# and it reads TSG-0001. Padding has to survive the count to the end of the run,
+# because the vendor prints the description literally.
+pad=$(python3 - <<'PY' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-PAD","company_name":"Padding Co",
+  "contact_name":"Ann Lee","contact_email":"a@x.example","address":"1 St",
+  "city":"Ames","state_province":"IA","postal_code":"50010","country":"US",
+  "logo_choice":"toolhound_logo","full_color":"No",
+  "label_width_in":1.5,"label_height_in":0.75,
+  "quantity":500,"seq_start":"TSG-0001"}]))
+PY
+)
+if grep -qF "SEQUENCE START: TSG-0001; SEQUENCE END: TSG-0500" <<<"$pad"; then
+  echo "PASS  padding survives the count: TSG-0001 over 500 ends TSG-0500"
+else
+  echo "FAIL  padding lost counting TSG-0001 over 500 labels"
+  fail=1
+fi
+
+# An order predating 0009 has no seq_start at all. Falling back to the legacy
+# integer keeps those buildable rather than emitting NEEDS INPUT.
+legacy=$(python3 - <<'PY' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-OLD","company_name":"Legacy Co",
+  "contact_name":"Ann Lee","contact_email":"a@x.example","address":"1 St",
+  "city":"Ames","state_province":"IA","postal_code":"50010","country":"US",
+  "logo_choice":"toolhound_logo","full_color":"No",
+  "label_width_in":1.5,"label_height_in":0.75,
+  "quantity":500,"start_seq":1000}]))
+PY
+)
+if grep -qF "SEQUENCE START: 1000; SEQUENCE END: 1499" <<<"$legacy"; then
+  echo "PASS  pre-0009 order falls back to the legacy integer start"
+else
+  echo "FAIL  pre-0009 order did not fall back to start_seq"
+  fail=1
+fi
+
+# --seq-start corrects an order, and says so, because a sequence that did not
+# come from the customer is worth a second look.
+override=$(python3 ../scripts/build_ramp_po.py --file row_supplied.json --seq-start ABC-0100)
+for want in "SEQUENCE START: ABC-0100; SEQUENCE END: ABC-3099" \
+            "came from the command line"; do
+  grep -qF "$want" <<<"$override" && echo "PASS  --seq-start override: $want" \
+    || { echo "FAIL  --seq-start override missing: $want"; fail=1; }
+done
+
+# A label number with no trailing digit cannot describe a range at all. Saying
+# so beats printing an invented end on a vendor PO.
+nodigit=$(python3 ../scripts/build_ramp_po.py --file row_supplied.json --seq-start TSG-X)
+if grep -qF "does not end in a digit" <<<"$nodigit"; then
+  echo "PASS  a label number with no trailing digit is flagged, not guessed"
+else
+  echo "FAIL  a label number with no trailing digit was not flagged"
+  fail=1
+fi
+
 exit $fail

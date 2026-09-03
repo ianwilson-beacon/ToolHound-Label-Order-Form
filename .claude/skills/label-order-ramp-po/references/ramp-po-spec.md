@@ -107,6 +107,11 @@ The script reproduces this exactly given `--size 1.50x0.75`,
 the regression test for the output format — if a change breaks this, the change
 is wrong.
 
+The sequences are `TSG-0001` and `TSG-0501` because that is what the signed
+acknowledgement form says. The end of each range is derived from the start, not
+asked for separately: trailing digits plus quantity minus one, re-padded to the
+same width.
+
 ```
 Who will own the PO: Ian Wilson
 Entity: ToolHound Inc.
@@ -125,7 +130,7 @@ Ship-to city: Beaumont
 Ship-to state: Texas
 Ship-to zip: 77701
 Currency: USD
-Line 1 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: 1; SEQUENCE END: 500
+Line 1 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); ToolHound logo (black & white); SEQUENCE START: TSG-0001; SEQUENCE END: TSG-0500
 Line 1 quantity: 500
 Line 1 rate: 0.83124
 Line 1 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware
@@ -134,7 +139,7 @@ Line 1 NetSuite Classification: Non-Recurring Revenue - Hardware
 Line 1 NetSuite Division: (blank)
 Line 1 NetSuite Customer/Job: The Shaw Group
 Line 1 Billable?: No
-Line 2 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); Shaw logo (black & white); SEQUENCE START: 501; SEQUENCE END: 5500
+Line 2 description: .002" Premium Poly Pro barcode labels (1.50" x 0.75"); Shaw logo (black & white); SEQUENCE START: TSG-0501; SEQUENCE END: TSG-5500
 Line 2 quantity: 5000
 Line 2 rate: 0.13635
 Line 2 NetSuite Category/Inventory Item: 506000 - Cost of Goods Sold - Hardware
@@ -182,9 +187,10 @@ not read as evidence the script is wrong.
 Two details from those POs remain live, because they are facts about the orders
 rather than about the format:
 
-- **Sequences can be alphanumeric.** One ran `Series: VOL6001 - VOL9000`. The
-  order form stores `start_seq` as an integer and cannot express a prefix, so
-  pass `--series-prefix VOL` and the script applies it to both ends.
+- **Sequences can be alphanumeric.** One ran `Series: VOL6001 - VOL9000`, and
+  Shaw's ran `TSG-0001 - TSG-0500`. The order form stores the start as the
+  string the customer typed (`seq_start`), so padding and prefix survive; the
+  end is derived from the trailing digits.
 - **Only two sizes have ever been ordered:** `1.50" x 0.75"` and
   `1.25" x 0.50"`. Any size passes through, but one outside those is flagged,
   since size has to be typed in from the acknowledgement form regardless.
