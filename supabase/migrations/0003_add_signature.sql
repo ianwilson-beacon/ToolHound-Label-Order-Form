@@ -11,6 +11,11 @@ alter table public.label_orders
 comment on column public.label_orders.signature_data is
   'Base64 PNG data URL of the customer''s drawn signature, captured on step 4. Nullable only for orders submitted before this column existed.';
 
+-- Dropped first so this file can be replayed onto a database that already has
+-- it; `add constraint` has no IF NOT EXISTS.
+alter table public.label_orders
+  drop constraint if exists label_orders_signature_shape;
+
 alter table public.label_orders
   add constraint label_orders_signature_shape
     check (

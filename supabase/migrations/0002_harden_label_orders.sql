@@ -37,6 +37,20 @@ $$;
 comment on function public.label_text_lines_valid(jsonb) is
   'Mirrors the form rule: at most three custom text lines, each at most 10 characters.';
 
+-- Dropped first so this file can be replayed onto a database that already has
+-- it. `add constraint` has no IF NOT EXISTS, so without these the whole ALTER
+-- aborts on a re-run and the migration folder cannot rebuild the schema from
+-- scratch. Same pattern as 0008.
+alter table public.label_orders
+  drop constraint if exists label_orders_quantity_positive,
+  drop constraint if exists label_orders_start_seq_nonneg,
+  drop constraint if exists label_orders_text_lengths,
+  drop constraint if exists label_orders_email_shape,
+  drop constraint if exists label_orders_text_lines_valid,
+  drop constraint if exists label_orders_custom_logo_has_file,
+  drop constraint if exists label_orders_logo_data_shape,
+  drop constraint if exists label_orders_approval_date_sane;
+
 alter table public.label_orders
   -- Quantities must be real. Without this, `quantity` accepts 0 and negatives.
   add constraint label_orders_quantity_positive
