@@ -32,8 +32,11 @@ When a quote **does** exist — occasionally one is obtained upfront to price a
 customer quote, as on the Shaw order — pass `--rate` and `--quote` and the PO
 totals normally.
 
-The order form supplies label size, the sequence as typed, customer PO,
-delivery phone and receiving contact, so a current order needs nothing added. Orders
+The order form supplies label size, the sequence as typed, delivery phone and
+receiving contact. It does **not** supply the customer's PO number -- it stopped
+asking, since customers rarely have one when they authorize. That comes off the
+customer's PO document on the Linear ticket, so pass `--customer-po` when the
+memo needs it. Orders
 placed before those fields existed have no size; that one is worth saying, and
 it comes off the signed acknowledgement form.
 
@@ -76,9 +79,9 @@ That is the whole command for a normal order. Add `--rate` and `--quote` only
 in the uncommon case where Metalcraft has already quoted.
 
 It reads the dashboard's wrapped file, a plain array of rows, or a single row
-object. Size, sequence, customer PO, phone and receiving contact all come off
-the order. `--size`,
-`--seq-start`, `--customer-po` and `--logo-name` are overrides for an older
+object. Size, sequence, phone and receiving contact all come off the order;
+the customer PO does not and is passed with `--customer-po`, from the Linear
+ticket. `--size`, `--seq-start` and `--logo-name` are overrides for an older
 order that lacks them, or for a correction. Anything still unknown comes out as
 `NEEDS INPUT` with a checklist under the block. Repeatable flags apply per line
 item; give one value and it applies to every line.

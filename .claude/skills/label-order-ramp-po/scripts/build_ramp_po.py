@@ -383,9 +383,11 @@ def build(rows, opts):
 
     if customer_po == NEEDS_INPUT:
         flags.append(
-            "No customer PO number. The form asks for one but it is optional, so "
-            "plenty of orders legitimately have none — check whether this customer "
-            "issues them before chasing it."
+            "No customer PO number, which is now the normal state: the order form "
+            "stopped asking, because customers rarely have one to hand when they "
+            "authorize. It comes off the customer's PO document on the Linear "
+            "ticket -- pass it with --customer-po. Some customers issue none at "
+            "all, so an empty memo segment is not automatically a gap."
         )
 
     out.append(f"Who will own the PO: {opts.owner}")
