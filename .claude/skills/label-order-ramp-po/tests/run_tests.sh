@@ -184,4 +184,91 @@ else
   fail=1
 fi
 
+# Two people in one Attention field. Millstone Weber's signed form reads
+# "Nick Tibbles/Justin Brooks"; splitting on the last space made that first
+# "Nick Tibbles/Justin", last "Brooks", which is nobody -- and it would have
+# reached Metalcraft as the delivery contact.
+two=$(python3 - <<'PY2' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-TWO","company_name":"Millstone Weber",
+  "contact_name":"Nick Tibbles/Justin Brooks","contact_email":"a@x.example",
+  "address":"601 Fountain Lakes Blvd","city":"Saint Charles","state_province":"MO",
+  "postal_code":"63301","country":"US","attention_name":"Nick Tibbles/Justin Brooks",
+  "logo_choice":"custom_logo","logo_file_name":"mw.pdf","full_color":"No",
+  "label_width_in":1.5,"label_height_in":0.75,"quantity":5000,"seq_start":"10000"}]))
+PY2
+)
+if grep -qF "Ship-to first name: Nick Tibbles/Justin Brooks" <<<"$two" \
+   && grep -qF "names more than one person" <<<"$two"; then
+  echo "PASS  two people in one contact field are flagged, not split"
+else
+  echo "FAIL  two-person contact field mishandled:"
+  grep -E "^Ship-to (first|last) name" <<<"$two" | sed 's/^/      /'
+  fail=1
+fi
+
+# A single name must still split, or this fix would have broken every order.
+if grep -qF "Ship-to first name: Mike" <<<"$supplied" \
+   && grep -qF "Ship-to last name: Betts" <<<"$supplied"; then
+  echo "PASS  an ordinary name still splits into first and last"
+else
+  echo "FAIL  an ordinary name no longer splits"
+  fail=1
+fi
+
+# "1 through 500" is an ordinary unpadded run, not a padding problem. Warning
+# on it cried wolf on real orders (Phoenix, Thomas Kanata).
+unpadded=$(python3 - <<'PY2' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-PLAIN","company_name":"Plain Co",
+  "contact_name":"Ann Lee","contact_email":"a@x.example","address":"1 St",
+  "city":"Ames","state_province":"IA","postal_code":"50010","country":"US",
+  "logo_choice":"toolhound_logo","full_color":"No","label_width_in":1.5,
+  "label_height_in":0.75,"quantity":500,"seq_start":"1"}]))
+PY2
+)
+if grep -qF "SEQUENCE START: 1; SEQUENCE END: 500" <<<"$unpadded" \
+   && ! grep -qiF "padding" <<<"$unpadded"; then
+  echo "PASS  an unpadded run is not flagged for growing a digit"
+else
+  echo "FAIL  unpadded run wrongly flagged:"
+  grep -iF "padding" <<<"$unpadded" | sed 's/^/      /'
+  fail=1
+fi
+
+# A zero-padded run that outgrows its width still is a problem: the customer
+# chose a fixed width and the vendor prints the description literally.
+broke=$(python3 - <<'PY2' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-BROKE","company_name":"Padded Co",
+  "contact_name":"Ann Lee","contact_email":"a@x.example","address":"1 St",
+  "city":"Ames","state_province":"IA","postal_code":"50010","country":"US",
+  "logo_choice":"toolhound_logo","full_color":"No","label_width_in":1.5,
+  "label_height_in":0.75,"quantity":20000,"seq_start":"TSG-0001"}]))
+PY2
+)
+if grep -qF "breaks its padding" <<<"$broke"; then
+  echo "PASS  a zero-padded run that outgrows its width is still flagged"
+else
+  echo "FAIL  padded run breaking its width was not flagged"
+  fail=1
+fi
+
+# Whatever the padding, a label number longer than the form can carry is wrong.
+overcap=$(python3 - <<'PY2' | python3 ../scripts/build_ramp_po.py
+import json
+print(json.dumps([{"order_ref":"THL-CAP","company_name":"Cap Co",
+  "contact_name":"Ann Lee","contact_email":"a@x.example","address":"1 St",
+  "city":"Ames","state_province":"IA","postal_code":"50010","country":"US",
+  "logo_choice":"toolhound_logo","full_color":"No","label_width_in":1.5,
+  "label_height_in":0.75,"quantity":2,"seq_start":"999999999"}]))
+PY2
+)
+if grep -qF "longer than the 9" <<<"$overcap"; then
+  echo "PASS  a run ending past the 9-character label limit is flagged"
+else
+  echo "FAIL  over-length label number not flagged"
+  fail=1
+fi
+
 exit $fail

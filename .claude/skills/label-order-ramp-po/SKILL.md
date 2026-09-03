@@ -105,8 +105,15 @@ can sanity-check the output:
 - **Sequence end** increments the trailing digits of `seq_start` by
   `quantity - 1` and re-pads to the same width. Off-by-one here, or dropped
   padding, means the vendor prints the wrong range and the labels are scrap.
+  A run is flagged for growing a digit only when the start was zero-padded
+  (`TSG-0001` over 20,000 ends `TSG-20000`, breaking a width the customer
+  chose) or when the end passes the 9-character limit. `1` through `500` is an
+  ordinary run and says nothing.
 - **Contact name** splits into first and last on the last space, so multi-word
-  first names survive.
+  first names survive. A field naming two people is left whole and flagged
+  instead -- Millstone Weber's form reads `Nick Tibbles/Justin Brooks`, and
+  splitting that gave first `Nick Tibbles/Justin`, last `Brooks`, which is
+  nobody. Ramp carries one first and one last name, so somebody has to choose.
 - **Address** splits into Street and Floor/Suite only on an unambiguous unit
   keyword. A wrong guess misroutes a shipment, so ambiguous addresses stay in
   Street.
@@ -138,6 +145,9 @@ scrolling past:
   Nisku order filed as PCL Arizona, where Nisku was not yet a customer. Neither
   is detectable from the order, so the script names it once per PO for you to
   confirm.
+- **Two people in the Attention field.** Real acknowledgement forms name a
+  pair. The script flags it and leaves the field as typed; pick who the
+  shipment is addressed to before entering it in Ramp.
 - **Different customers in one batch.** A Ramp PO carries one vendor and one
   ship-to, so orders for different customers need separate POs.
 

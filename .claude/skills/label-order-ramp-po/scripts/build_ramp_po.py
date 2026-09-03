@@ -39,6 +39,10 @@ import sys
 
 NEEDS_INPUT = "NEEDS INPUT"
 
+# The most permissive of the acknowledgement form variants, and the cap the
+# order form and the seq_start check constraint both enforce.
+SEQ_MAX_CHARS = 9
+
 # Standing defaults for label purchases. These are the same on every label PO,
 # which is why they live here rather than being asked for each time.
 ENTITY = "ToolHound Inc."
@@ -92,15 +96,44 @@ PHONE_COUNTRY = {
 }
 
 
-def split_contact_name(full_name):
+# Two people in one Attention field. Real acknowledgement forms do this --
+# Millstone Weber's reads "Nick Tibbles/Justin Brooks" -- and splitting on the
+# last space turns that into first "Nick Tibbles/Justin", last "Brooks", which
+# is nobody. Ramp carries one first and one last name, so this is a question
+# for a human, not something to guess at.
+# A comma is deliberately not a separator here: "Tibbles, Nick" and
+# "John Smith, Jr." are one person, and reporting either as two would be a
+# confidently wrong flag. Slash, ampersand, plus and "and" are what the forms
+# actually use for two people.
+TWO_PEOPLE = re.compile(r"\s*(?:/|&|\+|\band\b)\s*", re.IGNORECASE)
+
+
+def split_contact_name(full_name, flags=None, order_ref=None):
     """
     The web form collects one contact name; Ramp wants first and last
     separately. Split on the last space so multi-word first names survive
     ("Mary Jane Watson" -> "Mary Jane" / "Watson").
+
+    A field naming two people is flagged and left whole rather than split, so
+    the wrong name cannot reach the vendor as the delivery contact.
     """
-    parts = (full_name or "").strip().split()
-    if not parts:
+    raw = (full_name or "").strip()
+    if not raw:
         return NEEDS_INPUT, NEEDS_INPUT
+
+    people = [p for p in TWO_PEOPLE.split(raw) if p]
+    if len(people) > 1:
+        if flags is not None:
+            listed = " and ".join(repr(p) for p in people)
+            flags.append(
+                f"{order_ref}: the receiving contact names more than one person "
+                f"({listed}). Ramp takes a single first and last name, so pick who "
+                "the shipment is addressed to -- it has been left as typed rather "
+                "than split, which would have produced a name belonging to neither."
+            )
+        return raw, NEEDS_INPUT
+
+    parts = raw.split()
     if len(parts) == 1:
         return parts[0], NEEDS_INPUT
     return " ".join(parts[:-1]), parts[-1]
@@ -186,12 +219,27 @@ def sequence_bounds(row, flags, override=None):
     end_num = int(digits) + qty - 1
     end = head + str(end_num).zfill(len(digits))
 
-    if len(end) > len(start):
+    # Growing a digit is only a problem in two cases, and "1 through 500" is
+    # neither of them -- an unpadded run is expected to get longer, and warning
+    # on it cried wolf on ordinary orders.
+    #
+    #   * The start was zero-padded, so the customer chose a fixed width and the
+    #     run has broken out of it: TSG-0001 over 20,000 labels ends TSG-20000.
+    #   * The end breaks the character limit the acknowledgement form imposes,
+    #     whatever the start looked like.
+    padded = len(digits) > 1 and digits[0] == "0"
+    if padded and len(end) > len(start):
         flags.append(
-            f"{row.get('order_ref')}: the run outgrows its padding — {start} over "
-            f"{qty:,} labels ends at {end}, which is longer than the number it "
-            "started from. Confirm against the acknowledgement form; the label "
-            "number has a character limit."
+            f"{row.get('order_ref')}: the run breaks its padding — {start} is "
+            f"written to {len(digits)} digits, but over {qty:,} labels it ends at "
+            f"{end}. Confirm the range against the signed acknowledgement form."
+        )
+    if len(end) > SEQ_MAX_CHARS:
+        flags.append(
+            f"{row.get('order_ref')}: the run ends at {end}, which is "
+            f"{len(end)} characters -- longer than the {SEQ_MAX_CHARS} a label "
+            "number can carry on the acknowledgement form. Confirm the quantity "
+            "and the starting number."
         )
     if int(digits) == 0:
         flags.append(
@@ -319,7 +367,7 @@ def build(rows, opts):
     # Ramp's ship-to contact is whoever receives the shipment, which the form
     # now asks for separately — it is often not the person who ordered.
     receiver = (first.get("attention_name") or "").strip() or first.get("contact_name")
-    firstname, lastname = split_contact_name(receiver)
+    firstname, lastname = split_contact_name(receiver, flags, first.get("order_ref"))
 
     row_po = (first.get("customer_po") or "").strip()
     customer_po = opts.customer_po or row_po or NEEDS_INPUT
