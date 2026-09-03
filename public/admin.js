@@ -544,10 +544,11 @@
    * that holds a live staff session is a stored XSS with the session sitting
    * right there. A download hands the file to the operating system instead.
    */
-  function downloadArtwork(order, button, statusEl) {
+  function downloadArtwork(order, button, statusEl, label) {
     var db = getDb();
     if (!db) return;
-    if (button) { button.disabled = true; button.textContent = 'Preparing…'; }
+    var restore = label || 'Download artwork';
+    if (button) { button.disabled = true; button.textContent = '…'; }
     if (statusEl) statusEl.textContent = '';
 
     Promise.resolve(
@@ -576,8 +577,57 @@
           + (err && err.message ? err.message : 'unknown error');
       }
     }).then(function () {
-      if (button) { button.disabled = false; button.textContent = 'Download artwork'; }
+      if (button) { button.disabled = false; button.textContent = restore; }
     });
+  }
+
+  /**
+   * Print the record that is currently open, once its images are in.
+   *
+   * Printing straight after render raced the signature and the logo: both are
+   * images, and a print started before they decode comes out with gaps where
+   * they should be.
+   */
+  function printOpenRecord() {
+    var node = document.querySelector('.record-doc');
+    if (!node) return;
+
+    var fired = false;
+    function go() {
+      if (fired) return;
+      fired = true;
+      // Scoped to the record: the print stylesheet keys off this class so the
+      // dashboard behind it does not come out of the printer too.
+      document.body.classList.add('printing-record');
+      var done = function () {
+        document.body.classList.remove('printing-record');
+        window.removeEventListener('afterprint', done);
+      };
+      window.addEventListener('afterprint', done);
+      window.print();
+      // Safari fires afterprint unreliably; this is the belt to that brace.
+      window.setTimeout(done, 1000);
+    }
+
+    var pending = Array.prototype.slice.call(node.querySelectorAll('img'))
+      .filter(function (img) { return !img.complete; });
+    if (!pending.length) { go(); return; }
+
+    var left = pending.length;
+    function oneDone() { if (--left <= 0) go(); }
+    pending.forEach(function (img) {
+      img.addEventListener('load', oneDone);
+      img.addEventListener('error', oneDone);
+    });
+    // Never hang on artwork that will not load.
+    window.setTimeout(go, 1500);
+  }
+
+  /** Open the authorization record, optionally going straight to print. */
+  function openRecord(order, andPrint) {
+    state.recordId = order.id;
+    render();
+    if (andPrint) printOpenRecord();
   }
 
   // ---------------------------------------------------------------------------
@@ -800,7 +850,7 @@
         el('th', { class: 'num', text: 'Qty' }),
         el('th', { text: 'Label' }),
         el('th', { text: 'Status' }),
-        el('th', { text: '' })
+        el('th', { class: 'actions-cell', text: 'Actions' })
       ]));
 
       var tbody = el('tbody');
@@ -854,10 +904,7 @@
           el('td', { class: 'num', text: o.quantity == null ? '—' : String(o.quantity) }),
           el('td', { text: labelSpec(o) }),
           el('td', {}, select),
-          el('td', {}, el('button', {
-            class: 'link',
-            onclick: openDrawer
-          }, 'Details'))
+          el('td', { class: 'actions-cell' }, rowActions(o, openDrawer))
         ].forEach(function (cell) { tr.appendChild(cell); });
         tbody.appendChild(tr);
 
@@ -871,6 +918,57 @@
 
       host.appendChild(el('table', { class: 'orders' }, [thead, tbody]));
     }
+  }
+
+  /**
+   * The per-row actions.
+   *
+   * Artwork, the PO inputs and the signed record are wanted on nearly every
+   * order, and reaching them through the modal was three clicks for each. They
+   * live on the row now; the modal keeps its own copies for when it is already
+   * open.
+   *
+   * "PDF" opens the record and goes straight to the print dialogue, which is
+   * where a PDF actually comes from -- there is no way to hand over a file
+   * without the browser's own save step, and adding a PDF library to do it
+   * would render a second, drifting version of the document.
+   */
+  function rowActions(order, openDrawer) {
+    var wrap = el('div', { class: 'row-actions' });
+
+    var hasArtwork = order.logo_choice === 'custom_logo';
+    var logoBtn = el('button', {
+      title: hasArtwork
+        ? 'Download the customer artwork (' + (order.logo_file_name || 'file') + ')'
+        : 'This order has no uploaded artwork',
+      disabled: hasArtwork ? null : 'disabled'
+    }, 'Logo');
+    if (hasArtwork) {
+      logoBtn.addEventListener('click', function () {
+        // Errors surface on the row rather than in a modal nobody opened.
+        var statusEl = { set textContent(v) { state.rowErrors[order.id] = v; render(); } };
+        downloadArtwork(order, logoBtn, statusEl, 'Logo');
+      });
+    }
+    wrap.appendChild(logoBtn);
+
+    var inputsBtn = el('button', { title: 'Download the Ramp PO inputs as JSON' }, 'Inputs');
+    inputsBtn.addEventListener('click', function () {
+      downloadPoInputs([order], order.order_ref + '-ramp-po-input.json');
+    });
+    wrap.appendChild(inputsBtn);
+
+    var pdfBtn = el('button', {
+      title: 'Open the signed authorization record and print or save it as a PDF'
+    }, 'PDF');
+    pdfBtn.addEventListener('click', function () { openRecord(order, true); });
+    wrap.appendChild(pdfBtn);
+
+    var detailsBtn = el('button', { title: 'Open the full order' }, 'Details');
+    detailsBtn.addEventListener('click', openDrawer);
+    wrap.appendChild(detailsBtn);
+
+    return wrap;
   }
 
   /**
@@ -900,22 +998,8 @@
     });
 
     sheet.appendChild(el('div', { class: 'record-actions' }, [
-      el('button', {
-        class: 'primary',
-        onclick: function () {
-          // Scoped to the record: the print stylesheet keys off this class so
-          // the dashboard behind it does not come out of the printer too.
-          document.body.classList.add('printing-record');
-          var done = function () {
-            document.body.classList.remove('printing-record');
-            window.removeEventListener('afterprint', done);
-          };
-          window.addEventListener('afterprint', done);
-          window.print();
-          // Safari fires afterprint unreliably; this is the belt to that brace.
-          window.setTimeout(done, 1000);
-        }
-      }, 'Print / save as PDF'),
+      el('button', { class: 'primary', onclick: printOpenRecord },
+        'Print / save as PDF'),
       el('button', { class: 'ghost', onclick: close }, 'Close')
     ]));
 
@@ -1146,7 +1230,7 @@
       el('h3', { text: 'Authorization record' }),
       el('button', {
         class: 'primary',
-        onclick: function () { state.recordId = order.id; render(); }
+        onclick: function () { openRecord(order, false); }
       }, 'View / save as PDF'),
       el('div', {
         class: 'artwork-note',

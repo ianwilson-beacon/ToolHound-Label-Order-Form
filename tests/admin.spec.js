@@ -698,3 +698,127 @@ test('the whole row opens the order, but the status dropdown still works',
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await page.evaluate(() => window.__UPDATES__)).toEqual([{ status: 'po_sent' }]);
   });
+
+// ---------------------------------------------------------------------------
+// Row actions
+// ---------------------------------------------------------------------------
+
+test.describe('row actions', () => {
+  // Artwork, PO inputs and the signed record are wanted on nearly every order,
+  // so they are on the row rather than three clicks into the modal.
+  test('are all reachable without opening the order', async ({ page }) => {
+    await openDashboard(page);
+    const row = page.locator('tr.row').first();
+    for (const name of ['Logo', 'Inputs', 'PDF', 'Details']) {
+      await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
+    }
+    // None of them opened the modal.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  // They wrapped onto two lines at first, which made the column look broken.
+  test('sit on a single line', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openDashboard(page);
+    const tops = await page.locator('tr.row').first().locator('.row-actions button')
+      .evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(4);
+    expect(new Set(tops).size).toBe(1);
+  });
+
+  test('Inputs downloads the PO input file for that order alone',
+    async ({ page }) => {
+      await openDashboard(page);
+      const dl = page.waitForEvent('download');
+      await page.locator('tr.row').first()
+        .getByRole('button', { name: 'Inputs', exact: true }).click();
+      const file = await dl;
+      expect(file.suggestedFilename()).toBe('THL-AAAA-BBBBBB-ramp-po-input.json');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+
+  test('Logo downloads the customer artwork', async ({ page }) => {
+    await openDashboard(page);
+    const dl = page.waitForEvent('download');
+    await page.locator('tr.row').first()
+      .getByRole('button', { name: 'Logo', exact: true }).click();
+    const file = await dl;
+    expect(file.suggestedFilename()).toBe('northgate.svg');
+  });
+
+  // An order with no uploaded artwork has nothing to fetch, and a button that
+  // errors when pressed is worse than one that is visibly unavailable.
+  test('Logo is disabled when there is no artwork', async ({ page }) => {
+    await openDashboard(page);
+    // The custom-text order.
+    const row = page.locator('tr.row', { hasText: 'Acme Industrial' });
+    await expect(row.getByRole('button', { name: 'Logo', exact: true })).toBeDisabled();
+  });
+
+  test('PDF opens the record for that order and prints it', async ({ page }) => {
+    await openDashboard(page);
+    await page.evaluate(() => {
+      window.__PRINTS__ = 0;
+      window.print = () => { window.__PRINTS__++; };
+    });
+    await page.locator('tr.row').first()
+      .getByRole('button', { name: 'PDF', exact: true }).click();
+
+    const record = page.getByRole('dialog', { name: /Authorization record/ });
+    await expect(record).toBeVisible();
+    await expect(record).toContainText('THL-AAAA-BBBBBB');
+    await expect.poll(() => page.evaluate(() => window.__PRINTS__)).toBe(1);
+  });
+
+  test('a failed artwork fetch reports on the row, not in silence',
+    async ({ page }) => {
+      await blockCdns(page);
+      await page.addInitScript(() => { window.__FAIL_ARTWORK__ = true; });
+      await stubClient(page);
+      await page.goto('/admin.html');
+      // Make the artwork select fail.
+      await page.evaluate(() => {
+        const c = window.__TOOLHOUND_CLIENT__;
+        const realFrom = c.from.bind(c);
+        c.from = function () {
+          const t = realFrom();
+          const realSelect = t.select;
+          t.select = function (cols) {
+            if (String(cols).indexOf('logo_file_data') !== -1) {
+              const p = Promise.resolve({ data: null, error: { message: 'nope' } });
+              p.eq = () => p; p.limit = () => p; p.order = () => p; p.select = () => p;
+              return p;
+            }
+            return realSelect.call(t, cols);
+          };
+          return t;
+        };
+      });
+      await page.locator('tr.row').first()
+        .getByRole('button', { name: 'Logo', exact: true }).click();
+
+      await expect(page.getByText(/Could not fetch the artwork/)).toBeVisible();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// The order opens as a centred modal
+// ---------------------------------------------------------------------------
+
+test('the order detail is centred, not pinned to the edge', async ({ page }) => {
+  await openDashboard(page);
+  await page.locator('tr.row').first()
+    .getByRole('button', { name: 'Details', exact: true }).click();
+
+  const panel = page.getByRole('dialog');
+  await expect(panel).toBeVisible();
+
+  const box = await panel.boundingBox();
+  const vw = page.viewportSize().width;
+  const leftGap = box.x;
+  const rightGap = vw - (box.x + box.width);
+  // Centred: the gaps either side match. Pinned right would put leftGap at
+  // hundreds of pixels and rightGap at zero.
+  expect(Math.abs(leftGap - rightGap)).toBeLessThan(4);
+  expect(rightGap).toBeGreaterThan(8);
+});

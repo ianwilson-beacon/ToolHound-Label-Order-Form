@@ -125,7 +125,9 @@ table.orders{
   width:100%;
   border-collapse:collapse;
   font-size:13.5px;
-  min-width:900px;
+  /* Room for four row actions on one line. #tableScroll handles overflow, so a
+     narrow window scrolls rather than wrapping the buttons into two rows. */
+  min-width:1080px;
 }
 table.orders th{
   text-align:left;
@@ -220,29 +222,46 @@ button.link:hover{color:var(--red-dark);}
   padding:8px 14px;
 }
 
-/* --- detail drawer -------------------------------------------------------- */
+/* --- order detail modal ----------------------------------------------------
+   Centred rather than slid in from the edge: the order is the thing being
+   worked on, so it belongs in the middle of the screen, not pinned to one
+   side with the dashboard competing for attention beside it. */
 .drawer-backdrop{
   position:fixed;
   inset:0;
-  background:rgba(32,27,26,.4);
+  background:rgba(32,27,26,.45);
   display:flex;
-  justify-content:flex-end;
+  align-items:center;
+  justify-content:center;
+  padding:28px 16px;
   z-index:50;
 }
 .drawer{
   background:var(--paper);
-  width:min(480px,100%);
-  height:100%;
+  width:min(640px,100%);
+  max-height:calc(100vh - 56px);
   overflow-y:auto;
-  padding:24px 24px 40px;
-  box-shadow:-20px 0 40px -20px rgba(32,27,26,.35);
+  border-radius:14px;
+  padding:0 24px 28px;
+  box-shadow:0 24px 60px rgba(32,27,26,.35);
 }
+/* Sticky so Close and the reference stay put in a long order. */
 .drawer-head{
+  position:sticky;
+  top:0;
+  background:var(--paper);
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
   gap:12px;
-  margin-bottom:18px;
+  padding:20px 0 14px;
+  margin-bottom:16px;
+  border-bottom:1px solid var(--line);
+  z-index:1;
+}
+@media(max-width:560px){
+  .drawer-backdrop{padding:0;align-items:stretch;}
+  .drawer{max-height:100vh;border-radius:0;width:100%;}
 }
 .drawer-head h2{font-size:19px;margin:0 0 2px;}
 .drawer-head .sub{font-size:12.5px;color:var(--ink-soft);}
@@ -467,3 +486,29 @@ button.danger-outline:hover{border-color:#C0392B;background:#fdf6f5;}
   body.printing-record .record-actions{display:none !important;}
   body.printing-record .record-doc{padding:0;}
 }
+
+/* --- row actions -----------------------------------------------------------
+   The three things staff fetch per order -- artwork, the PO inputs, the signed
+   record -- are one click from the table. Opening the order to reach them was
+   three clicks for something done on nearly every order. */
+.row-actions{display:flex;gap:6px;flex-wrap:nowrap;justify-content:flex-end;}
+.row-actions button{
+  background:#fff;
+  border:1.5px solid var(--line);
+  border-radius:8px;
+  padding:5px 9px;
+  font-family:'Inter',sans-serif;
+  font-size:12px;
+  font-weight:600;
+  color:var(--ink);
+  cursor:pointer;
+  white-space:nowrap;
+  transition:border-color .15s ease,background .15s ease,color .15s ease;
+}
+.row-actions button:hover:not([disabled]){
+  border-color:var(--red);
+  color:var(--red);
+  background:#fdf6f5;
+}
+.row-actions button[disabled]{opacity:.4;cursor:default;}
+.orders td.actions-cell{text-align:right;white-space:nowrap;}
