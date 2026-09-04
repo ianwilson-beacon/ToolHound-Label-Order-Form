@@ -1,6 +1,6 @@
 ---
 name: label-order-ramp-po
-description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since a label PO is raised at 0.00 per unit before Metalcraft invoices. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job.
+description: Turn customer label order submissions from the ToolHound label order form into a copy-paste-ready Ramp purchase order for Metalcraft USD. Use this whenever someone asks to raise, build, draft, or prep a Ramp PO, a Metalcraft PO, a vendor PO, or a purchase order for a label order; whenever they reference a label order by its THL- reference, ask "what do I need to order these labels", or want a submitted order turned into something they can put into Ramp or NetSuite. Also use it when asked what is missing or still needed before a label order can be ordered from the vendor, since a label PO is raised at 0.00 per unit before Metalcraft invoices. Reach for this even when Ramp is not named explicitly — a label order that needs to become a supplier order is this skill's job. Use it equally for orders that never touched the form and live only as a Linear SALES ticket with the paperwork attached — "build the PO for SALES-170", "what's needed for the Millstone Weber labels", "order the Diavik labels" — and when asked what is still outstanding across several label orders at once.
 ---
 
 # Label order to Ramp PO
@@ -32,6 +32,9 @@ When a quote **does** exist — occasionally one is obtained upfront to price a
 customer quote, as on the Shaw order — pass `--rate` and `--quote` and the PO
 totals normally.
 
+A Linear ticket with an empty `MetalCraft Quote` section is therefore in normal
+shape, not incomplete. Raise the PO at `0.00`.
+
 The order form supplies label size, the sequence as typed, delivery phone and
 receiving contact. It does **not** supply the customer's PO number -- it stopped
 asking, since customers rarely have one when they authorize. That comes off the
@@ -42,8 +45,8 @@ it comes off the signed acknowledgement form.
 
 ## How to run it
 
-**1. Get the order data.** Two ways in, and the first is usually already done
-for you:
+**1. Get the order data.** Three ways in, and the first is usually already
+done for you:
 
 *The dashboard file.* Every order on `/admin` has a **Download PO inputs**
 button in its detail drawer, producing `<order_ref>-ramp-po-input.json`. If
@@ -67,6 +70,21 @@ order by seq_start;
 
 Order by `seq_start` so multiple line items come out in sequence order. Skip
 `logo_file_data` — it is megabytes of base64 and nothing here needs it.
+
+*Or assemble it from a Linear ticket.* Historical orders and anything Graham
+raises by hand never touched the form — there is no row and no dashboard file,
+only a SALES ticket with the paperwork attached. Read
+[`references/linear-intake.md`](references/linear-intake.md) before starting
+one. It covers where the ticket is (the `Label Order` label is missing from
+about half of them), why Linear's own attachment URLs cannot be fetched here
+and where the files are mirrored instead, which document answers which field,
+and how to reach the Salesforce contact data.
+
+The rule that file exists to enforce: **go and find it rather than coming back
+with a list of questions.** Almost everything someone would ask about is
+already in a document on the ticket. A whole set of PCL Nisku blockers — the
+NetSuite entity, the billing email, an apparent duplicate quote number —
+dissolved the moment the customer PO was actually opened.
 
 **2. Build the block.** Point the script at the file either way:
 
