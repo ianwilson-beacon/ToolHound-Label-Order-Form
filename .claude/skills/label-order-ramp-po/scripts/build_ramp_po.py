@@ -376,10 +376,17 @@ def build(rows, opts):
     # quotation segment is dropped rather than filled with a placeholder. A PO
     # that reads "Metalcraft Quotation: NEEDS INPUT" would go to the vendor
     # looking like a mistake; one that simply carries the customer PO does not.
+    # The same reasoning applies to the customer PO segment: plenty of
+    # customers issue no PO at all, and a memo reading "Customer PO # NEEDS
+    # INPUT" reaches Metalcraft looking like a mistake. Drop the segment and
+    # leave the memo blank rather than shipping the placeholder; the checklist
+    # below still says where the number would come from.
+    segments = []
     if opts.quote:
-        memo = f"Metalcraft Quotation: {opts.quote}; Customer PO # {customer_po}"
-    else:
-        memo = f"Customer PO # {customer_po}"
+        segments.append(f"Metalcraft Quotation: {opts.quote}")
+    if customer_po != NEEDS_INPUT:
+        segments.append(f"Customer PO # {customer_po}")
+    memo = "; ".join(segments) or "(blank)"
 
     if customer_po == NEEDS_INPUT:
         flags.append(
@@ -387,7 +394,8 @@ def build(rows, opts):
             "stopped asking, because customers rarely have one to hand when they "
             "authorize. It comes off the customer's PO document on the Linear "
             "ticket -- pass it with --customer-po. Some customers issue none at "
-            "all, so an empty memo segment is not automatically a gap."
+            "all, so an empty memo segment is not automatically a gap — the "
+            "memo is left blank rather than carrying a placeholder to the vendor."
         )
 
     out.append(f"Who will own the PO: {opts.owner}")

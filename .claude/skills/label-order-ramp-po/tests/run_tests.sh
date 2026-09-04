@@ -94,6 +94,19 @@ else
   echo "FAIL  memo did not drop the quotation segment"
   fail=1
 fi
+
+# Millstone Weber issued no customer PO at all, and plenty of customers never
+# do. A memo reading "Customer PO # NEEDS INPUT" would reach Metalcraft looking
+# like a mistake, exactly as the quotation placeholder would, so the segment is
+# dropped and the memo goes out blank.
+nopo=$(python3 ../scripts/build_ramp_po.py --file shaw_rows.json)
+if grep -qF "Memo to Supplier: (blank)" <<<"$nopo" \
+   && ! grep -qF "Customer PO # NEEDS INPUT" <<<"$nopo"; then
+  echo "PASS  memo goes out blank rather than carrying a customer-PO placeholder"
+else
+  echo "FAIL  memo shipped a NEEDS INPUT customer PO to the vendor"
+  fail=1
+fi
 for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
             "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
             "Customer PO # 4500620115" \
