@@ -35,6 +35,30 @@ totals normally.
 A Linear ticket with an empty `MetalCraft Quote` section is therefore in normal
 shape, not incomplete. Raise the PO at `0.00`.
 
+## Instructions go in the memo
+
+**Anything specific about how the labels are to be made belongs in the Memo to
+Supplier.** Metalcraft reads that field; they do not read the Linear ticket and
+they do not read our notes. "Red background with white print", "black where the
+logo is green", "printed 500 per roll" — if the vendor has to know it, it goes
+in the memo. The line description carries stock, size, logo and sequence and
+has no room for a sentence.
+
+Two sources, and both land there automatically or near enough:
+
+- The order form's **Special Instructions** field, which the customer wrote, is
+  carried into the memo without being asked for.
+- `--vendor-note` carries an instruction that came off the acknowledgement form
+  or the Linear ticket instead. Repeatable.
+
+They follow the quotation and customer-PO segments, joined with `; `.
+
+Because the memo now carries free text, the checklist flags it for an eyeball.
+Read it before submitting: internal routing has no business in front of the
+vendor. Which invoice mailbox the customer uses, their project or job code, who
+cut their PO — none of that is Metalcraft's, so keep it out of the row's
+Special Instructions when you are assembling a PO from paperwork by hand.
+
 The order form supplies label size, the sequence as typed, delivery phone and
 receiving contact. It does **not** supply the customer's PO number -- it stopped
 asking, since customers rarely have one when they authorize. That comes off the

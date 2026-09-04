@@ -107,6 +107,34 @@ else
   echo "FAIL  memo shipped a NEEDS INPUT customer PO to the vendor"
   fail=1
 fi
+
+# Metalcraft reads the memo, so an instruction about how the labels are made
+# has to travel with the PO. The order form's Special Instructions come along
+# automatically; --vendor-note carries one off the acknowledgement form.
+note=$(python3 ../scripts/build_ramp_po.py --file dashboard_download.json \
+        --vendor-note "Red background with white print")
+if grep -qF "Customer PO # 4500620115; Red background with white print" <<<"$note"; then
+  echo "PASS  a vendor instruction rides in the memo behind the PO reference"
+else
+  echo "FAIL  vendor instruction did not reach the memo"
+  fail=1
+fi
+if grep -qF "check it says what the labels need and nothing internal" <<<"$note"; then
+  echo "PASS  a memo carrying instructions is flagged for an eyeball"
+else
+  echo "FAIL  memo instructions went unflagged"
+  fail=1
+fi
+
+# A text label is printed in a colour as much as a logo one is, and the vendor
+# reads the description literally. Diavik's 2027 labels are red on white.
+col=$(python3 ../scripts/build_ramp_po.py --file dashboard_download.json)
+if grep -qE 'TEXT: "AECON" \((black & white|full colour)\)' <<<"$col"; then
+  echo "PASS  a text label states its colour like a logo line does"
+else
+  echo "FAIL  text label description dropped the colour"
+  fail=1
+fi
 for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
             "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
             "Customer PO # 4500620115" \

@@ -28,6 +28,9 @@ Usage:
       --size 1.50x0.75 --rate 0.83124 \\
       --quote "257037 & 257038" --customer-po "1700342 OP Rev. 000"
 
+  # an instruction the vendor has to see, off the acknowledgement form
+  build_ramp_po.py --file rows.json --vendor-note "Red background, white print"
+
 Multiple rows become multiple line items on one PO. They must be for the same
 customer, since a Ramp PO carries one vendor and one ship-to.
 """
@@ -303,7 +306,7 @@ def label_content(row, flags, logo_name=None):
                 f"lines ({' / '.join(lines)}). They are joined with ' / ' here — "
                 "confirm how Metalcraft should stack them on the label."
             )
-        return 'TEXT: "' + " / ".join(lines) + '"'
+        return 'TEXT: "' + " / ".join(lines) + f'" ({colour})'
 
     flags.append(f"{row.get('order_ref')}: unrecognised logo choice {choice!r}.")
     return NEEDS_INPUT
@@ -386,7 +389,38 @@ def build(rows, opts):
         segments.append(f"Metalcraft Quotation: {opts.quote}")
     if customer_po != NEEDS_INPUT:
         segments.append(f"Customer PO # {customer_po}")
+
+    # Anything specific about how the labels are to be made belongs in front of
+    # the vendor, not only in our own notes. Metalcraft reads the memo, so
+    # "red background with white print" or "black where the logo is green" has
+    # to travel with the PO -- the line description carries the stock, size,
+    # logo and sequence, and has no room for a sentence.
+    #
+    # Two sources: the order form's own Special Instructions field, which the
+    # customer wrote, and --vendor-note for an instruction that came off the
+    # acknowledgement form or the Linear ticket instead. Order-form text first,
+    # since the customer authorized it.
+    notes = []
+    for row in rows:
+        note = (row.get("instructions") or "").strip()
+        if note and note not in notes:
+            notes.append(note)
+    for note in opts.vendor_notes:
+        note = note.strip()
+        if note and note not in notes:
+            notes.append(note)
+    segments.extend(notes)
+
     memo = "; ".join(segments) or "(blank)"
+
+    if notes:
+        flags.append(
+            "Memo to Supplier carries "
+            + ("an instruction" if len(notes) == 1 else f"{len(notes)} instructions")
+            + " as well as the PO reference — Metalcraft reads this field, so "
+            "check it says what the labels need and nothing internal (our "
+            "billing routing, project codes, who invoices whom) rode along."
+        )
 
     if customer_po == NEEDS_INPUT:
         flags.append(
@@ -505,6 +539,7 @@ class Opts:
         self.owner = args.owner
         self.quote = args.quote
         self.customer_po = args.customer_po
+        self.vendor_notes = args.vendor_notes or []
         self._sizes = self._index(args.size)
         self._logo_names = self._index(args.logo_name)
         self._seq_starts = self._index(args.seq_start)
@@ -546,6 +581,12 @@ def main():
     p.add_argument("--owner", default="Ian Wilson", help="Who will own the PO")
     p.add_argument("--quote", help="Metalcraft quotation number(s) for the memo")
     p.add_argument("--customer-po", dest="customer_po", help="Customer PO number for the memo")
+    p.add_argument("--vendor-note", dest="vendor_notes", action="append",
+                   help="An instruction Metalcraft needs, added to the memo, "
+                        "e.g. \"Red background with white print\". Use it for "
+                        "an instruction off the acknowledgement form or the "
+                        "Linear ticket; the order form's own Special "
+                        "Instructions are carried automatically. Repeatable.")
     p.add_argument("--size", action="append",
                    help='Label size, e.g. 1.50x0.75. Repeat per line item.')
     p.add_argument("--rate", action="append",
