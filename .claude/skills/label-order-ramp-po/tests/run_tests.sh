@@ -135,6 +135,23 @@ else
   echo "FAIL  text label description dropped the colour"
   fail=1
 fi
+
+# A Metalcraft PO carries a ship-to name and address and has no use for the
+# customer's email. Millstone Weber's order has none, and treating that as an
+# open question held the order up, so it is a blank field rather than a gap.
+noemail=$(python3 -c "
+import json,sys
+rows=json.load(open('shaw_rows.json'))
+rows=rows['orders'] if isinstance(rows,dict) else rows
+for r in rows: r['contact_email']=None
+json.dump(rows,sys.stdout)
+" | python3 ../scripts/build_ramp_po.py)
+if grep -qF "Ship-to email: (blank)" <<<"$noemail"; then
+  echo "PASS  a missing ship-to email is blank, not an open question"
+else
+  echo "FAIL  missing ship-to email still reads as a gap"
+  fail=1
+fi
 for want in 'Line 1 description: .002" Premium Poly Pro barcode labels (1.25" x 0.50")' \
             "SEQUENCE START: VOL6001; SEQUENCE END: VOL9000" \
             "Customer PO # 4500620115" \

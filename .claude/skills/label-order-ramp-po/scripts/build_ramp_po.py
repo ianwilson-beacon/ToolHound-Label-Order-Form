@@ -442,7 +442,11 @@ def build(rows, opts):
     out.append(f"Ship-to phone country: {PHONE_COUNTRY.get(country, NEEDS_INPUT)}")
     phone = (first.get("ship_to_phone") or "").strip()
     out.append(f"Ship-to phone: {phone or '(blank)'}")
-    out.append(f"Ship-to email: {first.get('contact_email') or NEEDS_INPUT}")
+    # Not NEEDS_INPUT: the PO needs a ship-to name and address, and nothing
+    # about it needs the customer's email. Orders have been held up chasing one
+    # that no Metalcraft PO would ever have carried, so an absent email is a
+    # blank field rather than an open question.
+    out.append(f"Ship-to email: {first.get('contact_email') or '(blank)'}")
     out.append(f"Ship-to country: {country}")
     out.append(f"Ship-to street: {street}")
     out.append(f"Ship-to floor/suite: {suite or '(blank)'}")

@@ -231,9 +231,32 @@ field order does not match what you are seeing.
 
 ## If asked for a PDF
 
-The established process renders a print-style PDF via `wkhtmltopdf` for Ramp's
-own AI pre-fill tool, and attaches it to the source Linear issue. That belongs
-to `toolhound-invoice-prep`, which owns the HTML template and the Linear
-attachment flow. This skill produces the paste block; if a PDF is wanted, say
-so and hand the block over to that skill rather than inventing a second
-template.
+Ian uploads the PDF into Ramp's own "upload an order form to pre-fill your
+request" tool, so the only thing that matters is that the label/value rows
+survive as plain text in the order the form asks for them. It is not a document
+anyone reads for pleasure.
+
+```bash
+python3 .claude/skills/label-order-ramp-po/scripts/render_po_pdf.py \
+    SALES-161-millstone-weber-ramp-po.txt \
+    --title "Millstone Weber" \
+    --out SALES-161-millstone-weber-metalcraft-po.pdf
+```
+
+It takes the paste block this skill already produced, reflows it into the house
+style, renders it with the Chromium that Playwright installs, and prints the
+extracted text so you can see exactly what Ramp's parser will read. Read that
+extraction before handing the file over — a PDF that looks right but extracts
+badly is worse than no PDF.
+
+`toolhound-invoice-prep` owns the house style
+(`assets/ramp-po-print.example.html`) and the Linear attachment flow, and its
+own renderer shells out to `wkhtmltopdf`. This one drives Chromium and verifies
+with `pypdf` because that binary is not present in every environment this runs
+in; same document, same field order, fewer dependencies. If the PDF also needs
+attaching to the Linear issue, that part is still `toolhound-invoice-prep`'s.
+
+A `NEEDS INPUT` left in the block ends up in the PDF, and Ramp will happily
+pre-fill that literal string into the form. The renderer sets those in red and
+warns about them. Fill them before uploading, or upload knowing which fields
+you are about to correct by hand.
